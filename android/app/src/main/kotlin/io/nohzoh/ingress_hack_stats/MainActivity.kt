@@ -40,6 +40,7 @@ class MainActivity : FlutterActivity() {
                     }
                     "isDebug" -> result.success(CaptureService.debugMode)
                     "drainPending" -> result.success(PendingStore.drain(this))
+                    "diagnostics" -> result.success(Diagnostics.toMap())
                     else -> result.notImplemented()
                 }
             }

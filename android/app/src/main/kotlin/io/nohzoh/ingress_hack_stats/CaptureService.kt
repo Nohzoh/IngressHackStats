@@ -144,12 +144,14 @@ class CaptureService : Service() {
             return START_NOT_STICKY
         }
 
+        Diagnostics.reset()
         try {
             startProjection(resultCode, data)
             startLocationUpdates()
             isRunning = true
         } catch (e: Exception) {
             Log.e(TAG, "Unable to start capture", e)
+            Diagnostics.lastError = "start: ${e.message}"
             stopSelf()
         }
         return START_NOT_STICKY
@@ -254,11 +256,17 @@ class CaptureService : Service() {
 
     private fun onFrame(reader: ImageReader) {
         val image = reader.acquireLatestImage() ?: return
+        Diagnostics.frames++
         try {
             val now = SystemClock.elapsedRealtime()
-            if (appVisible || now - lastOcrAt < OCR_INTERVAL_MS) return
+            if (appVisible) {
+                Diagnostics.skippedAppVisible++
+                return
+            }
+            if (now - lastOcrAt < OCR_INTERVAL_MS) return
             if (!ocrBusy.compareAndSet(false, true)) return
             lastOcrAt = now
+            Diagnostics.ocrRuns++
             val bitmap = image.toBitmap()
             val capturedAt = System.currentTimeMillis()
             val client = recognizer
@@ -269,13 +277,18 @@ class CaptureService : Service() {
             }
             client.process(InputImage.fromBitmap(bitmap, 0))
                 .addOnSuccessListener(ocrExecutor) { text -> handleText(text, capturedAt) }
-                .addOnFailureListener(ocrExecutor) { e -> Log.w(TAG, "OCR failed", e) }
+                .addOnFailureListener(ocrExecutor) { e ->
+                    Log.w(TAG, "OCR failed", e)
+                    Diagnostics.ocrErrors++
+                    Diagnostics.lastError = "ocr: ${e.message}"
+                }
                 .addOnCompleteListener(ocrExecutor) {
                     bitmap.recycle()
                     ocrBusy.set(false)
                 }
         } catch (e: Exception) {
             Log.w(TAG, "Frame processing failed", e)
+            Diagnostics.lastError = "frame: ${e.message}"
             ocrBusy.set(false)
         } finally {
             image.close()
@@ -302,6 +315,8 @@ class CaptureService : Service() {
         if (lines.isEmpty()) return
 
         val fullText = lines.joinToString("\n") { it.text }.lowercase()
+        Diagnostics.textFrames++
+        Diagnostics.lastText = fullText.take(300)
         if (!debugMode && !looksLikeHackPopup(fullText)) return
 
         // The result popup stays on screen for several frames: drop exact repeats.
@@ -333,6 +348,7 @@ class CaptureService : Service() {
                 .put("locTs", it.time)
         }
         PendingStore.append(this, json.toString())
+        Diagnostics.kept++
     }
 
     /** Frames worth keeping: hack popup items ("L1 x1 Resonator"), glyph end screen, AP gain. */

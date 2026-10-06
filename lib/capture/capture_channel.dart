@@ -19,6 +19,10 @@ class CaptureChannel {
   Future<void> setDebug(bool enabled) =>
       _channel.invokeMethod<void>('setDebug', {'enabled': enabled});
 
+  /// Native pipeline counters (frames, OCR runs, kept frames, last text…).
+  Future<Map<String, Object?>> diagnostics() async =>
+      await _channel.invokeMapMethod<String, Object?>('diagnostics') ?? const {};
+
   /// Captures stored by the service since the last call, as JSON strings.
   Future<List<String>> drainPending() async =>
       await _channel.invokeListMethod<String>('drainPending') ?? const [];

@@ -24,6 +24,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   GlyphFilter _glyphFilter = GlyphFilter.all;
   int? _levelFilter;
   TransmuterFilter _transmuterFilter = TransmuterFilter.all;
+  Map<String, Object?> _diag = const {};
+  Map<String, int> _kinds = const {};
   String? _error;
   Timer? _poll;
 
@@ -65,6 +67,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final pending = await _capture.drainPending();
       if (pending.isNotEmpty) await repo.ingest(pending);
       final running = await _capture.isRunning();
+      final diag = await _capture.diagnostics();
+      final kinds = await repo.countByKind();
       final stats = await repo.stats(
         glyph: _glyphFilter,
         portalLevel: _levelFilter,
@@ -74,6 +78,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _running = running;
         _stats = stats;
+        _diag = diag;
+        _kinds = kinds;
         _error = null;
       });
     } catch (e) {
@@ -142,6 +148,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       child: Padding(padding: const EdgeInsets.all(12), child: Text(_error!)),
                     ),
                   _captureCard(context),
+                  _diagnosticsCard(context),
                   _filterBar(),
                   _transmuterFilterBar(),
                   _levelFilterBar(),
@@ -174,6 +181,38 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             subtitle: const Text("Enregistre tout le texte lu à l'écran, même hors hack"),
             value: _debug,
             onChanged: _setDebug,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Where frames stop in the pipeline: capture → OCR → filter → storage.
+  Widget _diagnosticsCard(BuildContext context) {
+    int n(String key) => (_diag[key] as num?)?.toInt() ?? 0;
+    final lastText = (_diag['lastText'] as String?) ?? '';
+    final lastError = (_diag['lastError'] as String?) ?? '';
+    final kinds = _kinds.entries.map((e) => '${e.key} ${e.value}').join(' · ');
+    final small = Theme.of(context).textTheme.bodySmall;
+    return Card(
+      child: ExpansionTile(
+        title: const Text('Diagnostic'),
+        subtitle: Text(
+          'images ${n('frames')} · OCR ${n('ocrRuns')} · avec texte ${n('textFrames')}'
+          ' · gardées ${n('kept')}',
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        expandedCrossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Ignorées (app au premier plan) : ${n('skippedAppVisible')}', style: small),
+          Text('Erreurs OCR : ${n('ocrErrors')}', style: small),
+          if (lastError.isNotEmpty) Text('Dernière erreur : $lastError', style: small),
+          Text('En base : ${kinds.isEmpty ? 'rien' : kinds}', style: small),
+          const SizedBox(height: 8),
+          Text('Dernier texte lu :', style: small),
+          SelectableText(
+            lastText.isEmpty ? '—' : lastText,
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
           ),
         ],
       ),

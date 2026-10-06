@@ -512,6 +512,12 @@ class HackRepository {
     ];
   }
 
+  /// Number of stored captures per kind, for diagnostics.
+  Future<Map<String, int>> countByKind() async {
+    final rows = await _db.rawQuery('SELECT kind, COUNT(*) AS n FROM captures GROUP BY kind');
+    return {for (final r in rows) r['kind'] as String: (r['n'] as num).toInt()};
+  }
+
   Future<void> deleteAll() async {
     await _db.transaction((txn) async {
       await txn.delete('hack_items');
