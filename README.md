@@ -19,6 +19,22 @@ flutter run
 
 Android 10 (API 29) minimum.
 
+## Signature de l'APK (CI)
+
+Pour qu'une nouvelle version s'installe par-dessus l'ancienne, tous les APK doivent être signés avec la même clé. Le CI la lit dans les secrets du repo :
+
+```bash
+keytool -genkeypair -v -keystore ingress-hack-stats.jks -alias ingresshackstats \
+  -keyalg RSA -keysize 2048 -validity 10000
+
+base64 -w0 ingress-hack-stats.jks | gh secret set ANDROID_KEYSTORE_BASE64   # macOS : base64 -i ingress-hack-stats.jks
+gh secret set ANDROID_KEYSTORE_PASSWORD
+gh secret set ANDROID_KEY_ALIAS --body ingresshackstats
+gh secret set ANDROID_KEY_PASSWORD
+```
+
+Garde le fichier `.jks` et ses mots de passe en lieu sûr, hors du repo : sans eux, plus aucune mise à jour ne pourra s'installer sans désinstaller l'app (et perdre ses données).
+
 ## Utilisation
 
 1. Ouvre l'app et appuie sur **Démarrer**. Accepte les autorisations (notifications, localisation), puis le partage d'écran. Sur Android 14+, choisis « Tout l'écran » ou l'app Ingress.
