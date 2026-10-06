@@ -9,7 +9,7 @@ L'app ne touche ni au client du jeu ni à son trafic réseau : elle lit uniqueme
 Le dépôt ne contient que le code propre au projet. Les fichiers générés par Flutter (wrapper Gradle, `settings.gradle.kts`, ressources Android…) se créent avec :
 
 ```bash
-flutter create --org com.nohzoh --project-name ingress_hack_stats --platforms android .
+flutter create --org io.nohzoh --project-name ingress_hack_stats --platforms android .
 flutter pub get
 flutter test
 flutter run

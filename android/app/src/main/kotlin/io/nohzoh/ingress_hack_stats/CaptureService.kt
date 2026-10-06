@@ -1,4 +1,4 @@
-package com.nohzoh.ingress_hack_stats
+package io.nohzoh.ingress_hack_stats
 
 import android.Manifest
 import android.app.NotificationChannel
@@ -53,7 +53,7 @@ class CaptureService : Service() {
     companion object {
         const val EXTRA_RESULT_CODE = "resultCode"
         const val EXTRA_DATA = "data"
-        private const val ACTION_STOP = "com.nohzoh.ingress_hack_stats.STOP"
+        private const val ACTION_STOP = "io.nohzoh.ingress_hack_stats.STOP"
         private const val TAG = "CaptureService"
         private const val CHANNEL_ID = "capture"
         private const val NOTIFICATION_ID = 1

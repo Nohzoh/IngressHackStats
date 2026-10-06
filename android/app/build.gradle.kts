@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.nohzoh.ingress_hack_stats"
+    namespace = "io.nohzoh.ingress_hack_stats"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -15,7 +15,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.nohzoh.ingress_hack_stats"
+        applicationId = "io.nohzoh.ingress_hack_stats"
         // MediaProjection + foreground service types need API 29+ to be reliable.
         minSdk = 29
         targetSdk = flutter.targetSdkVersion

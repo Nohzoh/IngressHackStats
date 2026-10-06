@@ -1,4 +1,4 @@
-package com.nohzoh.ingress_hack_stats
+package io.nohzoh.ingress_hack_stats
 
 import android.content.Context
 import java.io.File
