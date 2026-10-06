@@ -56,6 +56,7 @@ const itoEnBonusPopup = [
 ];
 
 void main() {
+  glyphTests();
   final parser = HackParser();
 
   test('Ito En line: transmuter read, portal name still found above it', () {
@@ -187,5 +188,57 @@ void main() {
 
   test('rarity labels', () {
     expect(HackParser.parseRarity('vr x1 heat sink'), Rarity.veryRare);
+  });
+}
+
+/// Glyph end screen (screenshot 6).
+const glyphEndScreen = [
+  OcrLine('22:59', x: 78, y: 50, h: 40),
+  OcrLine('MORE', x: 318, y: 500, h: 80),
+  OcrLine('HACKING BONUS:', x: 266, y: 750, h: 45),
+  OcrLine('38%', x: 330, y: 850, h: 90),
+  OcrLine('SPEED BONUS:', x: 291, y: 1050, h: 45),
+  OcrLine('95%', x: 330, y: 1145, h: 90),
+  OcrLine('Redo', x: 172, y: 1780, h: 40),
+  OcrLine('Done', x: 632, y: 1780, h: 40),
+];
+
+/// Items floating on the map with the AP gain (screenshot 5).
+const floatingLoot = [
+  OcrLine('4,929,165 / 7,000,000 AP', x: 245, y: 200, h: 36),
+  OcrLine('8,895 XM', x: 30, y: 228, h: 28),
+  OcrLine('L1 x1', x: 45, y: 885, h: 38),
+  OcrLine('Power Cube', x: 22, y: 935, h: 42),
+  OcrLine('+273 AP', x: 348, y: 962, h: 50),
+  OcrLine('L1 x7', x: 45, y: 1210, h: 38),
+  OcrLine('XMP Burster', x: 22, y: 1258, h: 42),
+];
+
+void glyphTests() {
+  final parser = HackParser();
+
+  test('glyph end screen: bonuses and command', () {
+    final result = parser.parse(glyphEndScreen, screenHeight: screenHeight);
+    expect(result.isHack, isFalse);
+    expect(result.glyph?.hackBonus, 38);
+    expect(result.glyph?.speedBonus, 95);
+    expect(result.glyph?.command, 'MORE');
+  });
+
+  test('floating loot: AP read, items not counted as a second hack', () {
+    final result = parser.parse(floatingLoot, screenHeight: screenHeight);
+    expect(result.isHack, isFalse);
+    expect(result.ap, 273);
+  });
+
+  test('glyph status', () {
+    GlyphResult g(int hack, int speed) => GlyphResult(hackBonus: hack, speedBonus: speed);
+    expect(GlyphStatus.compute(result: g(38, 95), hasBonusPopup: true), GlyphStatus.perfect);
+    expect(GlyphStatus.compute(result: g(20, 0), hasBonusPopup: true), GlyphStatus.partial);
+    expect(GlyphStatus.compute(result: g(0, 0), hasBonusPopup: false), GlyphStatus.failed);
+    expect(GlyphStatus.compute(hasBonusPopup: true), GlyphStatus.unknown);
+    expect(GlyphStatus.compute(hasBonusPopup: false, ap: 273), GlyphStatus.unknown);
+    expect(GlyphStatus.compute(hasBonusPopup: false, ap: 100), GlyphStatus.none);
+    expect(GlyphStatus.compute(hasBonusPopup: false), GlyphStatus.none);
   });
 }

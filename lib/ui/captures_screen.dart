@@ -88,7 +88,10 @@ class _CaptureTile extends StatelessWidget {
       _formatTime(capture.timestamp),
       capture.kind,
       if (capture.portalLevel != null) 'P${capture.portalLevel}',
-      if (capture.glyph) 'glyph',
+      if (capture.glyphStatus != null && capture.glyphStatus != GlyphStatus.none)
+        GlyphStatus.label(capture.glyphStatus!),
+      if (capture.glyphCommand != null) capture.glyphCommand!,
+      if (capture.ap != null) '+${capture.ap} AP',
       if (capture.transmuter != null) Transmuter.label(capture.transmuter!),
       if (capture.portalName != null) capture.portalName!,
     ].join(' · ');
@@ -110,6 +113,8 @@ class _CaptureTile extends StatelessWidget {
   static IconData _icon(String kind) => switch (kind) {
         CaptureKind.hack => Icons.check_circle_outline,
         CaptureKind.bonus => Icons.add_circle_outline,
+        CaptureKind.glyphResult => Icons.gesture,
+        CaptureKind.ap => Icons.bolt,
         CaptureKind.duplicate => Icons.copy_all,
         CaptureKind.raw => Icons.text_snippet_outlined,
         _ => Icons.block,

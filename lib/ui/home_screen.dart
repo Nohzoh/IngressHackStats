@@ -181,20 +181,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _filterBar() {
-    return Padding(
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(vertical: 8),
-      child: SegmentedButton<GlyphFilter>(
-        segments: const [
-          ButtonSegment(value: GlyphFilter.all, label: Text('Tous')),
-          ButtonSegment(value: GlyphFilter.glyph, label: Text('Avec glyph')),
-          ButtonSegment(value: GlyphFilter.noGlyph, label: Text('Sans glyph')),
+      child: Row(
+        children: [
+          for (final filter in GlyphFilter.values)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ChoiceChip(
+                label: Text(filter.label),
+                selected: _glyphFilter == filter,
+                onSelected: (_) {
+                  setState(() => _glyphFilter = filter);
+                  _sync();
+                },
+              ),
+            ),
         ],
-        selected: {_glyphFilter},
-        showSelectedIcon: false,
-        onSelectionChanged: (selection) {
-          setState(() => _glyphFilter = selection.first);
-          _sync();
-        },
       ),
     );
   }

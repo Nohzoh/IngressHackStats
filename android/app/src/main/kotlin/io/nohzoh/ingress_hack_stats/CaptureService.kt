@@ -66,6 +66,8 @@ class CaptureService : Service() {
 
         private val QUANTITY_TOKEN = Regex("(^|\\s)[x×]\\s?\\d{1,3}(\\s|$)", RegexOption.MULTILINE)
 
+        private val AP_GAIN = Regex("\\+\\s?\\d[\\d,.]*\\s?ap(\\W|$)")
+
         @Volatile var isRunning = false
             private set
 
@@ -333,9 +335,12 @@ class CaptureService : Service() {
         PendingStore.append(this, json.toString())
     }
 
-    /** Popup items read "L1 x1 Resonator": an item name plus an "x<n>" token. */
+    /** Frames worth keeping: hack popup items ("L1 x1 Resonator"), glyph end screen, AP gain. */
     private fun looksLikeHackPopup(text: String) =
-        QUANTITY_TOKEN.containsMatchIn(text) && ITEM_KEYWORDS.any { text.contains(it) }
+        (QUANTITY_TOKEN.containsMatchIn(text) && ITEM_KEYWORDS.any { text.contains(it) }) ||
+            // Glyph end screen and "+273 AP" floating after the hack.
+            text.contains("hacking bonus") ||
+            AP_GAIN.containsMatchIn(text)
 
     private data class OcrLine(val text: String, val x: Int, val y: Int, val h: Int)
 }

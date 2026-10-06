@@ -40,18 +40,85 @@ abstract final class Transmuter {
   static String label(String value) => value == plus ? 'Ito En +' : 'Ito En −';
 }
 
+/// End screen of a glyph sequence: "MORE / HACKING BONUS: 38% / SPEED BONUS: 95%".
+class GlyphResult {
+  const GlyphResult({required this.hackBonus, required this.speedBonus, this.command});
+
+  /// Share of glyphs drawn correctly, as shown (0 when all failed).
+  final int hackBonus;
+
+  /// Only above 0 when the whole sequence was right, in time.
+  final int speedBonus;
+
+  /// Command glyph entered before the sequence (MORE, LESS…), upper case.
+  final String? command;
+}
+
+/// Glyph outcome of a hack, derived from the glyph end screen, the bonus
+/// popup and the AP earned.
+abstract final class GlyphStatus {
+  /// No sign of a glyph sequence.
+  static const none = 'none';
+
+  /// Whole sequence right (speed bonus above 0).
+  static const perfect = 'perfect';
+
+  /// Some glyphs right, but not all.
+  static const partial = 'partial';
+
+  /// End screen seen with a 0% hacking bonus.
+  static const failed = 'failed';
+
+  /// Glyph hack seen (bonus popup, or AP not in 0/100/200) but its end screen
+  /// was not captured.
+  static const unknown = 'unknown';
+
+  /// AP of a hack without glyph: 0 (friendly), 100 (enemy), 200 (enemy
+  /// with double AP), plus the daily Hackstreak bonus (+500, +1000 on day 7).
+  /// Anything else means glyphs went through.
+  static const plainHackAp = {0, 100, 200, 500, 600, 700, 1000, 1100, 1200};
+
+  static String compute({
+    GlyphResult? result,
+    required bool hasBonusPopup,
+    int? ap,
+  }) {
+    if (result != null) {
+      if (result.speedBonus > 0) return perfect;
+      if (result.hackBonus > 0) return partial;
+      return failed;
+    }
+    if (hasBonusPopup) return unknown;
+    if (ap != null && !plainHackAp.contains(ap)) return unknown;
+    return none;
+  }
+
+  static String label(String status) => switch (status) {
+        none => 'Sans glyph',
+        perfect => 'Glyph parfait',
+        partial => 'Glyph partiel',
+        failed => 'Glyph raté',
+        unknown => 'Glyph',
+        _ => status,
+      };
+}
+
 class ParseResult {
   const ParseResult(
     this.items, {
     this.portalName,
     this.isBonusPopup = false,
     this.transmuter,
+    this.glyph,
+    this.ap,
   }) : rejectReason = null;
   const ParseResult.rejected(String reason)
       : items = const [],
         portalName = null,
         isBonusPopup = false,
         transmuter = null,
+        glyph = null,
+        ap = null,
         rejectReason = reason;
 
   final List<ParsedItem> items;
@@ -64,6 +131,12 @@ class ParseResult {
 
   /// [Transmuter.plus], [Transmuter.minus] or null.
   final String? transmuter;
+
+  /// Set when the frame is the glyph end screen.
+  final GlyphResult? glyph;
+
+  /// "+273 AP" floating on the map after an action.
+  final int? ap;
 
   final String? rejectReason;
 
@@ -103,6 +176,9 @@ class HackParser {
   static final _levelToken = RegExp(r'^l[1-8]$');
   static const _rarityTokens = {'common', 'rare', 'vr'};
   static final _itoEn = RegExp(r'it[o0]\s?en\s*\(?\s*([+-])');
+  static final _percent = RegExp(r'(\d{1,4})\s?%');
+  static final _ap = RegExp(r'\+\s?(\d{1,3}(?:[,.]\d{3})*)\s?ap($|[^a-z])');
+  static final _command = RegExp(r'^[a-z][a-z ]{1,24}$');
 
   ParseResult parse(List<OcrLine> lines, {double screenHeight = 0}) {
     final tolerance = screenHeight > 0 ? screenHeight * 0.012 : 12.0;
@@ -113,6 +189,10 @@ class HackParser {
     for (final marker in kNonHackMarkers) {
       if (all.contains(marker)) return ParseResult.rejected('marker:$marker');
     }
+
+    final glyph = parseGlyphResult(rows);
+    if (glyph != null) return ParseResult(const [], glyph: glyph);
+    final ap = parseAp(rows);
 
     final isBonusPopup = rows.any((r) => r.contains('bonus item'));
     final items = <ParsedItem>[];
@@ -126,7 +206,7 @@ class HackParser {
       }
     }
 
-    if (items.isEmpty) return const ParseResult([]);
+    if (items.isEmpty) return ParseResult(const [], ap: ap);
     if (items.length > maxItemsPerHack) return const ParseResult.rejected('too_many_items');
 
     final first = firstItemRow!;
@@ -149,7 +229,45 @@ class HackParser {
       portalName: portalName,
       isBonusPopup: isBonusPopup,
       transmuter: transmuter,
+      ap: ap,
     );
+  }
+
+  /// Reads the glyph end screen; null for any other screen.
+  static GlyphResult? parseGlyphResult(List<String> rows) {
+    final hackIdx = rows.indexWhere((r) => r.contains('hacking bonus'));
+    final speedIdx = rows.indexWhere((r) => r.contains('speed bonus'));
+    if (hackIdx < 0 || speedIdx < 0) return null;
+    final hack = _percentAt(rows, hackIdx);
+    final speed = _percentAt(rows, speedIdx);
+    if (hack == null || speed == null) return null;
+    final command = [
+      for (final row in rows.take(hackIdx))
+        if (_command.hasMatch(row) && row != 'redo' && row != 'done') row.toUpperCase(),
+    ].join(' ');
+    return GlyphResult(
+      hackBonus: hack,
+      speedBonus: speed,
+      command: command.isEmpty ? null : command,
+    );
+  }
+
+  /// Percentage on the label row ("hacking bonus: 38%") or the row below it.
+  static int? _percentAt(List<String> rows, int labelIdx) {
+    for (final idx in [labelIdx, labelIdx + 1]) {
+      if (idx >= rows.length) break;
+      final m = _percent.firstMatch(rows[idx]);
+      if (m != null) return int.parse(m.group(1)!);
+    }
+    return null;
+  }
+
+  static int? parseAp(List<String> rows) {
+    for (final row in rows) {
+      final m = _ap.firstMatch(row);
+      if (m != null) return int.parse(m.group(1)!.replaceAll(RegExp('[,.]'), ''));
+    }
+    return null;
   }
 
   ParsedItem? _parseSegment(String segment, {required bool bonus}) {

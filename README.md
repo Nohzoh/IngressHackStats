@@ -43,6 +43,13 @@ Un glyph hack affiche ensuite un second popup, intitulé « Bonus items: », ave
 
 Le popup n'indique pas le niveau du portail : il est estimé comme le niveau le plus fréquent parmi les items reçus (bonus compris, pondéré par la quantité), avec un tirage déterministe en cas d'égalité. Attention au biais : filtrer sur « P5 » sélectionne les hacks où le L5 domine, donc la répartition des niveaux d'items sous ce filtre est biaisée par construction. Le filtre reste fiable pour les items sans niveau (mods, clés…).
 
+Le succès des glyphes vient de l'écran de fin de séquence (« HACKING BONUS / SPEED BONUS », avec la commande éventuelle, ex. MORE), rattaché au hack qui suit :
+- vitesse > 0 % : séquence parfaite ;
+- hacking > 0 % mais vitesse à 0 % : partielle ;
+- hacking à 0 % : ratée.
+
+Si cet écran n'a pas été capté, un popup bonus ou un gain d'AP hors des valeurs d'un hack simple (0, 100, 200, + bonus Hackstreak) indique quand même un glyph, sans détail.
+
 Seul le texte de la forme `[niveau|rareté] x<quantité> <nom>` est retenu, ce qui écarte le COMM et les alertes affichés autour.
 
 Points encore à vérifier sur de vrais hacks : le format des items sans niveau (mods, clés, capsules) et la lecture de la rareté.

@@ -18,6 +18,12 @@ abstract final class CaptureKind {
   /// Bonus popup with no recent hack to attach to.
   static const orphanBonus = 'bonus_orphan';
 
+  /// Glyph end screen ("HACKING BONUS / SPEED BONUS"), attached to the next hack.
+  static const glyphResult = 'glyph_result';
+
+  /// "+N AP" floating on the map, attached to the hack it follows or precedes.
+  static const ap = 'ap';
+
   /// Same popup as the previous one, read on another frame.
   static const duplicate = 'duplicate';
 
@@ -28,7 +34,23 @@ abstract final class CaptureKind {
   static const raw = 'raw';
 }
 
-enum GlyphFilter { all, glyph, noGlyph }
+enum GlyphFilter {
+  all,
+  none,
+  any,
+  perfect,
+  partial,
+  failed;
+
+  String get label => switch (this) {
+        all => 'Tous',
+        none => 'Sans glyph',
+        any => 'Avec glyph',
+        perfect => 'Parfait',
+        partial => 'Partiel',
+        failed => 'Raté',
+      };
+}
 
 enum TransmuterFilter { all, plus, minus, none }
 
@@ -74,6 +96,9 @@ class CaptureRow {
     this.glyph = false,
     this.portalLevel,
     this.transmuter,
+    this.glyphStatus,
+    this.glyphCommand,
+    this.ap,
     this.rejectReason,
     this.latitude,
     this.longitude,
@@ -99,6 +124,11 @@ class CaptureRow {
 
   /// For a hack: Ito En transmuter announced in the popup ([Transmuter]).
   final String? transmuter;
+
+  /// For a hack: [GlyphStatus] value.
+  final String? glyphStatus;
+  final String? glyphCommand;
+  final int? ap;
   final String? rejectReason;
   final double? latitude;
   final double? longitude;
@@ -114,7 +144,7 @@ class HackRepository {
     final path = p.join(await getDatabasesPath(), 'hacks.db');
     final db = await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE captures (
@@ -128,6 +158,11 @@ class HackRepository {
             glyph INTEGER NOT NULL DEFAULT 0,
             portal_level INTEGER,
             transmuter TEXT,
+            glyph_hack_bonus INTEGER,
+            glyph_speed_bonus INTEGER,
+            glyph_command TEXT,
+            ap INTEGER,
+            glyph_status TEXT,
             raw_text TEXT NOT NULL,
             lines_json TEXT NOT NULL,
             screen_w REAL,
@@ -162,10 +197,41 @@ class HackRepository {
         if (oldVersion < 4) {
           await db.execute('ALTER TABLE captures ADD COLUMN transmuter TEXT');
         }
+        if (oldVersion < 5) {
+          for (final column in [
+            'glyph_hack_bonus INTEGER',
+            'glyph_speed_bonus INTEGER',
+            'glyph_command TEXT',
+            'ap INTEGER',
+            'glyph_status TEXT',
+          ]) {
+            await db.execute('ALTER TABLE captures ADD COLUMN $column');
+          }
+        }
       },
     );
-    return HackRepository(db);
+    final repo = HackRepository(db);
+    // Hacks stored before glyph statuses existed: compute them.
+    final missing = Sqflite.firstIntValue(await db.rawQuery(
+      "SELECT COUNT(*) FROM captures WHERE kind = '${CaptureKind.hack}' AND glyph_status IS NULL",
+    ));
+    if ((missing ?? 0) > 0) await repo.reparseAll();
+    return repo;
   }
+
+  /// Columns describing what a single frame shows, besides its items.
+  static Map<String, Object?> _frameColumns(ParseResult result, _Decision decision) => {
+        'kind': decision.kind,
+        'signature': result.isHack ? result.signature : null,
+        'reject_reason': result.rejectReason,
+        'portal_name': result.portalName,
+        'parent_id': decision.parentId,
+        'transmuter': result.transmuter,
+        'glyph_hack_bonus': result.glyph?.hackBonus,
+        'glyph_speed_bonus': result.glyph?.speedBonus,
+        'glyph_command': result.glyph?.command,
+        'ap': result.ap,
+      };
 
   /// Stores the JSON captures drained from the native service.
   /// Returns the number of new hacks.
@@ -182,12 +248,7 @@ class HackRepository {
         final decision = linker.classify(capture, result);
         final id = await txn.insert('captures', {
           'ts': capture.timestamp,
-          'kind': decision.kind,
-          'signature': result.isHack ? result.signature : null,
-          'reject_reason': result.rejectReason,
-          'portal_name': result.portalName,
-          'parent_id': decision.parentId,
-          'transmuter': result.transmuter,
+          ..._frameColumns(result, decision),
           'raw_text': capture.rawText,
           'lines_json': jsonEncode(capture.lines.map((l) => l.toJson()).toList()),
           'screen_w': capture.screenWidth,
@@ -209,7 +270,7 @@ class HackRepository {
     var hacks = 0;
     await _db.transaction((txn) async {
       await txn.delete('hack_items');
-      await txn.update('captures', {'glyph': 0, 'portal_level': null});
+      await txn.update('captures', {'glyph': 0, 'portal_level': null, 'glyph_status': null});
       final rows = await txn.query('captures', orderBy: 'ts ASC, id ASC');
       final linker = _PopupLinker();
       for (final row in rows) {
@@ -225,19 +286,7 @@ class HackRepository {
         final result = _parser.parse(lines, screenHeight: capture.screenHeight);
         final decision = linker.classify(capture, result);
         final id = row['id'] as int;
-        await txn.update(
-          'captures',
-          {
-            'kind': decision.kind,
-            'signature': result.isHack ? result.signature : null,
-            'reject_reason': result.rejectReason,
-            'portal_name': result.portalName,
-            'parent_id': decision.parentId,
-            'transmuter': result.transmuter,
-          },
-          where: 'id = ?',
-          whereArgs: [id],
-        );
+        await txn.update('captures', _frameColumns(result, decision), where: 'id = ?', whereArgs: [id]);
         if (await _apply(txn, id, capture, result, decision, linker)) hacks++;
       }
     });
@@ -254,12 +303,44 @@ class HackRepository {
     _PopupLinker linker,
   ) async {
     switch (decision.kind) {
-      case CaptureKind.hack:
-        linker.registerHack(id, capture.timestamp, result.signature);
+      case CaptureKind.hack: {
+        linker.registerHack(id, capture.timestamp, result.signature, hasAp: result.ap != null);
         await _insertItems(txn, id, result.items);
         await _updatePortalLevel(txn, id);
+        final glyph = linker.takePendingGlyph(capture.timestamp);
+        if (glyph != null) {
+          await txn.update(
+            'captures',
+            {
+              'glyph_hack_bonus': glyph.result.hackBonus,
+              'glyph_speed_bonus': glyph.result.speedBonus,
+              'glyph_command': glyph.result.command,
+            },
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+          await txn.update('captures', {'parent_id': id}, where: 'id = ?', whereArgs: [glyph.captureId]);
+        }
+        final ap = result.ap == null ? linker.takePendingAp(capture.timestamp) : null;
+        if (ap != null) await _attachAp(txn, id, ap.captureId, ap.value);
+        await _updateGlyphStatus(txn, id);
         return true;
-      case CaptureKind.bonus:
+      }
+      case CaptureKind.glyphResult: {
+        linker.setPendingGlyph(id, capture.timestamp, result.glyph!);
+        return false;
+      }
+      case CaptureKind.ap: {
+        final parent = decision.parentId;
+        if (parent != null) {
+          await _attachAp(txn, parent, id, result.ap!);
+          await _updateGlyphStatus(txn, parent);
+        } else {
+          linker.setPendingAp(id, capture.timestamp, result.ap!);
+        }
+        return false;
+      }
+      case CaptureKind.bonus: {
         final parent = decision.parentId!;
         await _insertItems(txn, parent, result.items);
         await txn.update('captures', {'glyph': 1}, where: 'id = ?', whereArgs: [parent]);
@@ -272,10 +353,40 @@ class HackRepository {
           );
         }
         await _updatePortalLevel(txn, parent);
+        await _updateGlyphStatus(txn, parent);
         return false;
-      default:
+      }
+      default: {
         return false;
+      }
     }
+  }
+
+  Future<void> _attachAp(DatabaseExecutor db, int hackId, int apCaptureId, int ap) async {
+    await db.update('captures', {'ap': ap}, where: 'id = ?', whereArgs: [hackId]);
+    await db.update('captures', {'parent_id': hackId}, where: 'id = ?', whereArgs: [apCaptureId]);
+  }
+
+  /// Recomputes a hack's glyph status from everything attached to it.
+  Future<void> _updateGlyphStatus(DatabaseExecutor db, int hackId) async {
+    final rows = await db.query(
+      'captures',
+      columns: ['glyph', 'glyph_hack_bonus', 'glyph_speed_bonus', 'glyph_command', 'ap'],
+      where: 'id = ?',
+      whereArgs: [hackId],
+    );
+    if (rows.isEmpty) return;
+    final r = rows.first;
+    final hackBonus = r['glyph_hack_bonus'] as int?;
+    final speedBonus = r['glyph_speed_bonus'] as int?;
+    final status = GlyphStatus.compute(
+      result: hackBonus == null || speedBonus == null
+          ? null
+          : GlyphResult(hackBonus: hackBonus, speedBonus: speedBonus),
+      hasBonusPopup: r['glyph'] == 1,
+      ap: r['ap'] as int?,
+    );
+    await db.update('captures', {'glyph_status': status}, where: 'id = ?', whereArgs: [hackId]);
   }
 
   /// Recomputes a hack's inferred portal level from all its items.
@@ -305,10 +416,16 @@ class HackRepository {
     switch (glyph) {
       case GlyphFilter.all:
         break;
-      case GlyphFilter.glyph:
-        conditions.add('c.glyph = 1');
-      case GlyphFilter.noGlyph:
-        conditions.add('c.glyph = 0');
+      case GlyphFilter.none:
+        conditions.add("c.glyph_status = '${GlyphStatus.none}'");
+      case GlyphFilter.any:
+        conditions.add("c.glyph_status <> '${GlyphStatus.none}'");
+      case GlyphFilter.perfect:
+        conditions.add("c.glyph_status = '${GlyphStatus.perfect}'");
+      case GlyphFilter.partial:
+        conditions.add("c.glyph_status = '${GlyphStatus.partial}'");
+      case GlyphFilter.failed:
+        conditions.add("c.glyph_status = '${GlyphStatus.failed}'");
     }
     switch (transmuter) {
       case TransmuterFilter.all:
@@ -385,6 +502,9 @@ class HackRepository {
           glyph: r['glyph'] == 1,
           portalLevel: r['portal_level'] as int?,
           transmuter: r['transmuter'] as String?,
+          glyphStatus: r['glyph_status'] as String?,
+          glyphCommand: r['glyph_command'] as String?,
+          ap: r['ap'] as int?,
           rejectReason: r['reject_reason'] as String?,
           latitude: (r['lat'] as num?)?.toDouble(),
           longitude: (r['lng'] as num?)?.toDouble(),
@@ -427,31 +547,61 @@ class _Decision {
   final int? parentId;
 }
 
-/// Walks captures in time order: drops popups read on several frames and
-/// attaches each "Bonus items:" popup to the hack shown just before it.
+class _PendingGlyph {
+  const _PendingGlyph(this.captureId, this.timestamp, this.result);
+  final int captureId;
+  final int timestamp;
+  final GlyphResult result;
+}
+
+class _PendingAp {
+  const _PendingAp(this.captureId, this.timestamp, this.value);
+  final int captureId;
+  final int timestamp;
+  final int value;
+}
+
+/// Walks captures in time order: drops screens read on several frames and
+/// links what belongs to one hack:
+///  - the glyph end screen, shown before the popups, goes to the next hack;
+///  - the "Bonus items:" popup goes to the hack shown just before it;
+///  - the "+N AP" floating text goes to the closest hack in time.
 class _PopupLinker {
   _PopupLinker();
 
-  /// A popup with the same content within this delay is the same popup.
+  /// A screen with the same content within this delay is the same screen.
   static const duplicateWindow = Duration(seconds: 20);
 
   /// A bonus popup appears right after the regular one.
   static const bonusWindow = Duration(seconds: 60);
 
+  /// Delay between the glyph end screen ("Done") and the popup.
+  static const glyphWindow = Duration(seconds: 90);
+
+  /// The AP gain floats on the map around the time of the popup.
+  static const apWindow = Duration(seconds: 15);
+
   int? _hackId;
   int _hackTs = 0;
   String _hackSignature = '';
   bool _hackHasBonus = false;
+  bool _hackHasAp = false;
   int _bonusTs = 0;
   String _bonusSignature = '';
+  int _glyphTs = 0;
+  String _glyphKey = '';
+  int _apTs = 0;
+  int? _apValue;
+  _PendingGlyph? _pendingGlyph;
+  _PendingAp? _pendingAp;
 
-  /// Restores the state from the last stored hack, so a bonus popup drained
-  /// in a later batch still finds its hack.
+  /// Restores the state from the last stored hack, so a bonus popup or an AP
+  /// gain drained in a later batch still finds its hack.
   static Future<_PopupLinker> resume(DatabaseExecutor db) async {
     final linker = _PopupLinker();
     final rows = await db.query(
       'captures',
-      columns: ['id', 'ts', 'signature', 'glyph'],
+      columns: ['id', 'ts', 'signature', 'glyph', 'ap'],
       where: 'kind = ?',
       whereArgs: [CaptureKind.hack],
       orderBy: 'ts DESC, id DESC',
@@ -463,6 +613,7 @@ class _PopupLinker {
       linker._hackTs = r['ts'] as int;
       linker._hackSignature = r['signature'] as String? ?? '';
       linker._hackHasBonus = r['glyph'] == 1;
+      linker._hackHasAp = r['ap'] != null;
     }
     final lastSeen = await db.query(
       'captures',
@@ -486,19 +637,39 @@ class _PopupLinker {
   }
 
   _Decision classify(OcrCapture capture, ParseResult result) {
-    if (!result.isHack) {
-      return _Decision(capture.debug ? CaptureKind.raw : CaptureKind.ignored);
-    }
     final ts = capture.timestamp;
-    final sig = result.signature;
+    bool sameAsLast(int lastTs) => ts - lastTs < duplicateWindow.inMilliseconds;
 
-    if (result.isBonusPopup) {
-      if (sig == _bonusSignature && ts - _bonusTs < duplicateWindow.inMilliseconds) {
-        _bonusTs = ts;
-        return const _Decision(CaptureKind.duplicate);
+    final glyph = result.glyph;
+    if (glyph != null) {
+      final key = '${glyph.hackBonus}/${glyph.speedBonus}/${glyph.command}';
+      final duplicate = key == _glyphKey && sameAsLast(_glyphTs);
+      _glyphKey = key;
+      _glyphTs = ts;
+      return _Decision(duplicate ? CaptureKind.duplicate : CaptureKind.glyphResult);
+    }
+
+    if (!result.isHack) {
+      final ap = result.ap;
+      if (ap == null) return _Decision(capture.debug ? CaptureKind.raw : CaptureKind.ignored);
+      final duplicate = ap == _apValue && sameAsLast(_apTs);
+      _apValue = ap;
+      _apTs = ts;
+      if (duplicate) return const _Decision(CaptureKind.duplicate);
+      final hackId = _hackId;
+      if (hackId != null && !_hackHasAp && ts - _hackTs < apWindow.inMilliseconds) {
+        _hackHasAp = true;
+        return _Decision(CaptureKind.ap, hackId);
       }
+      return const _Decision(CaptureKind.ap);
+    }
+
+    final sig = result.signature;
+    if (result.isBonusPopup) {
+      final duplicate = sig == _bonusSignature && sameAsLast(_bonusTs);
       _bonusTs = ts;
       _bonusSignature = sig;
+      if (duplicate) return const _Decision(CaptureKind.duplicate);
       final hackId = _hackId;
       if (hackId != null && !_hackHasBonus && ts - _hackTs < bonusWindow.inMilliseconds) {
         _hackHasBonus = true;
@@ -507,18 +678,42 @@ class _PopupLinker {
       return const _Decision(CaptureKind.orphanBonus);
     }
 
-    if (sig == _hackSignature && ts - _hackTs < duplicateWindow.inMilliseconds) {
+    if (sig == _hackSignature && sameAsLast(_hackTs)) {
       _hackTs = ts;
       return const _Decision(CaptureKind.duplicate);
     }
     return const _Decision(CaptureKind.hack);
   }
 
-  void registerHack(int id, int ts, String signature) {
+  void registerHack(int id, int ts, String signature, {required bool hasAp}) {
     _hackId = id;
     _hackTs = ts;
     _hackSignature = signature;
     _hackHasBonus = false;
+    _hackHasAp = hasAp;
     _bonusSignature = '';
+  }
+
+  void setPendingGlyph(int captureId, int ts, GlyphResult result) =>
+      _pendingGlyph = _PendingGlyph(captureId, ts, result);
+
+  void setPendingAp(int captureId, int ts, int value) =>
+      _pendingAp = _PendingAp(captureId, ts, value);
+
+  /// The glyph end screen seen shortly before the hack at [ts], if any.
+  _PendingGlyph? takePendingGlyph(int ts) {
+    final pending = _pendingGlyph;
+    _pendingGlyph = null;
+    if (pending == null || ts - pending.timestamp > glyphWindow.inMilliseconds) return null;
+    return pending;
+  }
+
+  /// An AP gain seen shortly before the hack at [ts], if any.
+  _PendingAp? takePendingAp(int ts) {
+    final pending = _pendingAp;
+    _pendingAp = null;
+    if (pending == null || ts - pending.timestamp > apWindow.inMilliseconds) return null;
+    _hackHasAp = true;
+    return pending;
   }
 }
