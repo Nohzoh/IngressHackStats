@@ -27,13 +27,26 @@ Android 10 (API 29) minimum.
 
 L'OCR est mis en pause tant que l'app elle-même est à l'écran, pour ne pas lire ses propres statistiques.
 
-## Calibration (à faire en premier)
+## Format du popup de hack
 
-Le parseur a été écrit sans captures réelles du popup de hack : les noms d'items, le format des quantités (`x2`, `×2`…) et la façon dont ML Kit découpe les lignes doivent être vérifiés sur de vrais hacks.
+Calibré sur de vraies captures (Ingress Prime, interface en anglais) :
+
+```
+Szlama Ejzman                         ← nom du portail
+L1 x1 Power Cube   |  L1 x1 Resonator ← deux colonnes : niveau, quantité, nom
+```
+
+Un glyph hack affiche ensuite un second popup, intitulé « Bonus items: », avec la même mise en forme. L'app le rattache au hack précédent (moins de 60 s) : ses items sont comptés comme bonus et le hack est marqué « glyph ».
+
+Seul le texte de la forme `[niveau|rareté] x<quantité> <nom>` est retenu, ce qui écarte le COMM et les alertes affichés autour.
+
+Points encore à vérifier sur de vrais hacks : le format des items sans niveau (mods, clés, capsules) et la lecture de la rareté.
+
+## Calibration
 
 1. Active le **mode calibration** : tout texte lu à l'écran est enregistré, même s'il n'est pas reconnu comme un hack.
-2. Fais quelques hacks (normaux et glyph), puis ouvre l'écran **Captures** (icône liste) pour voir le texte brut et ce que le parseur en a tiré.
-3. Ajuste `lib/parsing/item_catalog.dart` (alias, marqueurs d'écrans à ignorer) et `lib/parsing/hack_parser.dart` (quantités, niveaux, ligne « bonus »), en ajoutant les cas réels dans `test/hack_parser_test.dart`.
+2. Fais quelques hacks, puis ouvre l'écran **Captures** (icône liste) pour voir le texte brut et ce que le parseur en a tiré.
+3. Ajuste `lib/parsing/item_catalog.dart` (alias, marqueurs d'écrans à ignorer) et `lib/parsing/hack_parser.dart`, en ajoutant les cas réels dans `test/hack_parser_test.dart`.
 4. Bouton **Ré-analyser** : relance le parseur sur toutes les captures stockées, sans avoir à refaire les hacks.
 
 Désactive le mode calibration ensuite : il enregistre tout ce qui s'affiche à l'écran.
@@ -61,7 +74,7 @@ lib/
 
 Les captures brutes (texte et positions) sont conservées, ce qui permet de ré-analyser tout l'historique quand le parseur s'améliore.
 
-Un même popup lu sur plusieurs images n'est compté qu'une fois, grâce à deux filtres : côté natif (texte identique sous 10 s), puis côté Dart (même loot sous 20 s, marqué `duplicate`).
+Un même popup lu sur plusieurs images n'est compté qu'une fois, grâce à deux filtres : côté natif (texte identique sous 10 s), puis côté Dart (même portail et même loot sous 20 s, marqué `duplicate`).
 
 ## Limites connues
 

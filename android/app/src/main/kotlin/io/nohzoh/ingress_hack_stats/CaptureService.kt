@@ -64,6 +64,8 @@ class CaptureService : Service() {
         /** Same text seen again within this window is not stored twice. */
         private const val DEDUP_WINDOW_MS = 10_000L
 
+        private val QUANTITY_TOKEN = Regex("(^|\\s)[x×]\\s?\\d{1,3}(\\s|$)", RegexOption.MULTILINE)
+
         @Volatile var isRunning = false
             private set
 
@@ -298,7 +300,7 @@ class CaptureService : Service() {
         if (lines.isEmpty()) return
 
         val fullText = lines.joinToString("\n") { it.text }.lowercase()
-        if (!debugMode && ITEM_KEYWORDS.none { fullText.contains(it) }) return
+        if (!debugMode && !looksLikeHackPopup(fullText)) return
 
         // The result popup stays on screen for several frames: drop exact repeats.
         val key = fullText.filter { it.isLetterOrDigit() }
@@ -330,6 +332,10 @@ class CaptureService : Service() {
         }
         PendingStore.append(this, json.toString())
     }
+
+    /** Popup items read "L1 x1 Resonator": an item name plus an "x<n>" token. */
+    private fun looksLikeHackPopup(text: String) =
+        QUANTITY_TOKEN.containsMatchIn(text) && ITEM_KEYWORDS.any { text.contains(it) }
 
     private data class OcrLine(val text: String, val x: Int, val y: Int, val h: Int)
 }

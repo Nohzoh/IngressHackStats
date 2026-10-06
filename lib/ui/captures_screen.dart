@@ -78,12 +78,20 @@ class _CaptureTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final summary = capture.items.isNotEmpty
-        ? capture.items.join(', ')
-        : capture.rejectReason ?? '—';
+    final summary = switch (capture.kind) {
+      _ when capture.items.isNotEmpty => capture.items.join(', '),
+      CaptureKind.bonus => 'Bonus rattaché au hack #${capture.parentId}',
+      _ => capture.rejectReason ?? '—',
+    };
+    final title = [
+      _formatTime(capture.timestamp),
+      capture.kind,
+      if (capture.glyph) 'glyph',
+      if (capture.portalName != null) capture.portalName!,
+    ].join(' · ');
     return ExpansionTile(
       leading: Icon(_icon(capture.kind)),
-      title: Text('${_formatTime(capture.timestamp)} · ${capture.kind}'),
+      title: Text('#${capture.id} · $title'),
       subtitle: Text(summary, maxLines: 2, overflow: TextOverflow.ellipsis),
       childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
       expandedCrossAxisAlignment: CrossAxisAlignment.start,
@@ -98,6 +106,7 @@ class _CaptureTile extends StatelessWidget {
 
   static IconData _icon(String kind) => switch (kind) {
         CaptureKind.hack => Icons.check_circle_outline,
+        CaptureKind.bonus => Icons.add_circle_outline,
         CaptureKind.duplicate => Icons.copy_all,
         CaptureKind.raw => Icons.text_snippet_outlined,
         _ => Icons.block,

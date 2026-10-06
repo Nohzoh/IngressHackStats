@@ -15,13 +15,10 @@ class ParsedItem {
   final String? rarity;
   final int quantity;
 
-  /// Glyph-hack bonus items (listed after a "bonus" heading).
+  /// Glyph-hack bonus item (from the "Bonus items:" popup).
   final bool bonus;
 
   String get key => '$item|${level ?? ''}|${rarity ?? ''}';
-
-  ParsedItem withQuantity(int q) =>
-      ParsedItem(item: item, level: level, rarity: rarity, quantity: q, bonus: bonus);
 
   @override
   String toString() {
@@ -35,31 +32,44 @@ class ParsedItem {
 }
 
 class ParseResult {
-  const ParseResult(this.items) : rejectReason = null;
+  const ParseResult(this.items, {this.portalName, this.isBonusPopup = false}) : rejectReason = null;
   const ParseResult.rejected(String reason)
       : items = const [],
+        portalName = null,
+        isBonusPopup = false,
         rejectReason = reason;
 
   final List<ParsedItem> items;
+
+  /// Title of the result popup: the portal name for a regular hack.
+  final String? portalName;
+
+  /// The second popup of a glyph hack, titled "Bonus items:".
+  final bool isBonusPopup;
+
   final String? rejectReason;
 
   bool get isHack => rejectReason == null && items.isNotEmpty;
 
-  /// Stable identity of the loot, used to drop the same popup read twice.
+  /// Identity of the popup, used to count the same popup read on several
+  /// frames only once.
   String get signature {
-    final parts = items
-        .map((i) => '${i.key}x${i.quantity}${i.bonus ? 'b' : ''}')
-        .toList()
-      ..sort();
-    return parts.join(';');
+    final parts = items.map((i) => '${i.key}x${i.quantity}').toList()..sort();
+    return '${isBonusPopup ? 'BONUS' : portalName ?? ''}#${parts.join(';')}';
   }
 }
 
-/// Turns the OCR lines of a frame into a list of hacked items.
+/// Turns the OCR lines of a frame into the content of a hack result popup.
 ///
-/// Lines are first grouped into visual rows (same height on screen), so an
-/// item name and its "x2" counter end up on the same row even when ML Kit
-/// returns them as separate lines.
+/// Popup layout (Ingress Prime, English UI):
+///
+///     Szlama Ejzman                          ← portal name, or "Bonus items:"
+///     [icon] L1 x1 Power Cube | [icon] L1 x1 Resonator
+///     [icon] L2 x1 Resonator  | [icon] L1 x2 Resonator
+///
+/// Items sit in two columns, so a visual row can hold two items. Each item is
+/// "[level] x<quantity> <name>"; the "x<quantity>" token is what separates
+/// popup items from other text on screen (COMM, alerts).
 class HackParser {
   HackParser({CatalogMatcher? matcher}) : _matcher = matcher ?? CatalogMatcher();
 
@@ -69,43 +79,56 @@ class HackParser {
   static const maxItemsPerHack = 40;
 
   static final _level = RegExp(r'(^|[^a-z0-9])l\s?([1-8])($|[^0-9])');
-  static final _quantity = RegExp(r'(^|\s)x\s?(\d{1,3})($|\s)|(^|\s)(\d{1,3})\s?x($|\s)');
-  static final _quantityOnly = RegExp(r'^(?:x\s?(\d{1,3})|(\d{1,3})\s?x)$');
+  static final _quantity = RegExp(r'(^|\s)x\s?(\d{1,3})($|\s)');
+  static final _quantityToken = RegExp(r'^x\d{1,3}$');
+  static final _levelToken = RegExp(r'^l[1-8]$');
+  static const _rarityTokens = {'common', 'rare', 'vr'};
 
   ParseResult parse(List<OcrLine> lines, {double screenHeight = 0}) {
     final tolerance = screenHeight > 0 ? screenHeight * 0.012 : 12.0;
-    final rows = groupRows(lines, tolerance: tolerance).map(normalize).toList();
+    final rawRows = groupRows(lines, tolerance: tolerance);
+    final rows = rawRows.map(normalize).toList();
 
     final all = rows.join('\n');
     for (final marker in kNonHackMarkers) {
       if (all.contains(marker)) return ParseResult.rejected('marker:$marker');
     }
 
+    final isBonusPopup = rows.any((r) => r.contains('bonus item'));
     final items = <ParsedItem>[];
-    var bonus = false;
-    for (final row in rows) {
-      if (row.contains('bonus')) bonus = true;
-      final type = _matcher.match(row);
-      if (type == null) {
-        final q = quantityOnly(row);
-        if (q != null && items.isNotEmpty) {
-          items[items.length - 1] = items.last.withQuantity(q);
-        }
-        continue;
+    int? firstItemRow;
+    for (var i = 0; i < rows.length; i++) {
+      for (final segment in segments(rows[i])) {
+        final item = _parseSegment(segment, bonus: isBonusPopup);
+        if (item == null) continue;
+        items.add(item);
+        firstItemRow ??= i;
       }
-      final level = type.leveled ? parseLevel(row) : null;
-      final withoutLevel = row.replaceAll(_level, ' ');
-      items.add(ParsedItem(
-        item: type.name,
-        level: level,
-        rarity: (type.hasRarity ? parseRarity(row) : null) ?? type.defaultRarity,
-        quantity: parseQuantity(withoutLevel) ?? 1,
-        bonus: bonus,
-      ));
     }
 
+    if (items.isEmpty) return const ParseResult([]);
     if (items.length > maxItemsPerHack) return const ParseResult.rejected('too_many_items');
-    return ParseResult(items);
+
+    String? portalName;
+    final first = firstItemRow!;
+    if (!isBonusPopup && first > 0) {
+      final title = rawRows[first - 1].trim();
+      if (title.isNotEmpty) portalName = title;
+    }
+    return ParseResult(items, portalName: portalName, isBonusPopup: isBonusPopup);
+  }
+
+  ParsedItem? _parseSegment(String segment, {required bool bonus}) {
+    final type = _matcher.match(segment);
+    if (type == null) return null;
+    final withoutLevel = segment.replaceAll(_level, ' ');
+    return ParsedItem(
+      item: type.name,
+      level: type.leveled ? parseLevel(segment) : null,
+      rarity: (type.hasRarity ? parseRarity(segment) : null) ?? type.defaultRarity,
+      quantity: parseQuantity(withoutLevel) ?? 1,
+      bonus: bonus,
+    );
   }
 
   static String normalize(String text) => text
@@ -131,29 +154,47 @@ class HackParser {
     ];
   }
 
-  static int? parseLevel(String row) {
-    final m = _level.firstMatch(row);
+  /// Splits a normalized row into items, each starting at its optional
+  /// level / rarity prefix followed by an "x<quantity>" token:
+  /// "l1 x1 power cube l1 x1 resonator" → ["l1 x1 power cube", "l1 x1 resonator"].
+  /// Rows without a quantity token yield nothing.
+  static List<String> segments(String row) {
+    final tokens = row.split(' ');
+    final starts = <int>[];
+    for (var i = 0; i < tokens.length; i++) {
+      if (!_quantityToken.hasMatch(tokens[i])) continue;
+      var start = i;
+      if (start > 0 && _levelToken.hasMatch(tokens[start - 1])) {
+        start--;
+      } else if (start > 0 && _rarityTokens.contains(tokens[start - 1])) {
+        start--;
+        if (tokens[start] == 'rare' && start > 0 && tokens[start - 1] == 'very') start--;
+      }
+      if (starts.isNotEmpty && start <= starts.last) start = i;
+      starts.add(start);
+    }
+    return [
+      for (var k = 0; k < starts.length; k++)
+        tokens.sublist(starts[k], k + 1 < starts.length ? starts[k + 1] : tokens.length).join(' '),
+    ];
+  }
+
+  static int? parseLevel(String text) {
+    final m = _level.firstMatch(text);
     return m == null ? null : int.parse(m.group(2)!);
   }
 
-  static String? parseRarity(String row) {
-    if (row.contains('very rare') || RegExp(r'(^|[^a-z])vr([^a-z]|$)').hasMatch(row)) {
+  static String? parseRarity(String text) {
+    if (text.contains('very rare') || RegExp(r'(^|[^a-z])vr([^a-z]|$)').hasMatch(text)) {
       return Rarity.veryRare;
     }
-    if (RegExp(r'(^|[^a-z])rare([^a-z]|$)').hasMatch(row)) return Rarity.rare;
-    if (row.contains('common')) return Rarity.common;
+    if (RegExp(r'(^|[^a-z])rare([^a-z]|$)').hasMatch(text)) return Rarity.rare;
+    if (text.contains('common')) return Rarity.common;
     return null;
   }
 
-  static int? parseQuantity(String row) {
-    final m = _quantity.firstMatch(row);
-    if (m == null) return null;
-    return int.parse(m.group(2) ?? m.group(5)!);
-  }
-
-  static int? quantityOnly(String row) {
-    final m = _quantityOnly.firstMatch(row.trim());
-    if (m == null) return null;
-    return int.parse(m.group(1) ?? m.group(2)!);
+  static int? parseQuantity(String text) {
+    final m = _quantity.firstMatch(text);
+    return m == null ? null : int.parse(m.group(2)!);
   }
 }

@@ -21,6 +21,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _running = false;
   bool _debug = false;
   bool _busy = false;
+  GlyphFilter _glyphFilter = GlyphFilter.all;
   String? _error;
   Timer? _poll;
 
@@ -62,7 +63,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final pending = await _capture.drainPending();
       if (pending.isNotEmpty) await repo.ingest(pending);
       final running = await _capture.isRunning();
-      final stats = await repo.stats();
+      final stats = await repo.stats(glyph: _glyphFilter);
       if (!mounted) return;
       setState(() {
         _running = running;
@@ -135,6 +136,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       child: Padding(padding: const EdgeInsets.all(12), child: Text(_error!)),
                     ),
                   _captureCard(context),
+                  _filterBar(),
                   _summaryCard(context),
                   ..._itemTiles(context),
                 ],
@@ -166,6 +168,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             onChanged: _setDebug,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _filterBar() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: SegmentedButton<GlyphFilter>(
+        segments: const [
+          ButtonSegment(value: GlyphFilter.all, label: Text('Tous')),
+          ButtonSegment(value: GlyphFilter.glyph, label: Text('Avec glyph')),
+          ButtonSegment(value: GlyphFilter.noGlyph, label: Text('Sans glyph')),
+        ],
+        selected: {_glyphFilter},
+        showSelectedIcon: false,
+        onSelectionChanged: (selection) {
+          setState(() => _glyphFilter = selection.first);
+          _sync();
+        },
       ),
     );
   }
