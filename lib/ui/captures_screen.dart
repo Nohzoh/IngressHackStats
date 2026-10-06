@@ -86,6 +86,7 @@ class _CaptureTile extends StatelessWidget {
     final title = [
       _formatTime(capture.timestamp),
       capture.kind,
+      if (capture.portalLevel != null) 'P${capture.portalLevel}',
       if (capture.glyph) 'glyph',
       if (capture.portalName != null) capture.portalName!,
     ].join(' · ');

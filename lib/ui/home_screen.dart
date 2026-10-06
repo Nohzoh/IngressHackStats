@@ -22,6 +22,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _debug = false;
   bool _busy = false;
   GlyphFilter _glyphFilter = GlyphFilter.all;
+  int? _levelFilter;
   String? _error;
   Timer? _poll;
 
@@ -63,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final pending = await _capture.drainPending();
       if (pending.isNotEmpty) await repo.ingest(pending);
       final running = await _capture.isRunning();
-      final stats = await repo.stats(glyph: _glyphFilter);
+      final stats = await repo.stats(glyph: _glyphFilter, portalLevel: _levelFilter);
       if (!mounted) return;
       setState(() {
         _running = running;
@@ -137,6 +138,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   _captureCard(context),
                   _filterBar(),
+                  _levelFilterBar(),
                   _summaryCard(context),
                   ..._itemTiles(context),
                 ],
@@ -187,6 +189,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           setState(() => _glyphFilter = selection.first);
           _sync();
         },
+      ),
+    );
+  }
+
+  Widget _levelFilterBar() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(right: 8),
+            child: Text('Portail'),
+          ),
+          for (final level in <int?>[null, 1, 2, 3, 4, 5, 6, 7, 8])
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ChoiceChip(
+                label: Text(level == null ? 'Tous' : 'P$level'),
+                selected: _levelFilter == level,
+                onSelected: (_) {
+                  setState(() => _levelFilter = level);
+                  _sync();
+                },
+              ),
+            ),
+        ],
       ),
     );
   }

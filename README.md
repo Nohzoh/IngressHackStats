@@ -38,6 +38,8 @@ L1 x1 Power Cube   |  L1 x1 Resonator ← deux colonnes : niveau, quantité, nom
 
 Un glyph hack affiche ensuite un second popup, intitulé « Bonus items: », avec la même mise en forme. L'app le rattache au hack précédent (moins de 60 s) : ses items sont comptés comme bonus et le hack est marqué « glyph ».
 
+Le popup n'indique pas le niveau du portail : il est estimé comme le niveau le plus fréquent parmi les items reçus (bonus compris, pondéré par la quantité), avec un tirage déterministe en cas d'égalité. Attention au biais : filtrer sur « P5 » sélectionne les hacks où le L5 domine, donc la répartition des niveaux d'items sous ce filtre est biaisée par construction. Le filtre reste fiable pour les items sans niveau (mods, clés…).
+
 Seul le texte de la forme `[niveau|rareté] x<quantité> <nom>` est retenu, ce qui écarte le COMM et les alertes affichés autour.
 
 Points encore à vérifier sur de vrais hacks : le format des items sans niveau (mods, clés, capsules) et la lecture de la rareté.

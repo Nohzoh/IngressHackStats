@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../models/ocr_capture.dart';
 import '../parsing/hack_parser.dart';
+import '../parsing/portal_level.dart';
 
 /// What a stored capture turned out to be.
 abstract final class CaptureKind {
@@ -69,6 +70,7 @@ class CaptureRow {
     this.portalName,
     this.parentId,
     this.glyph = false,
+    this.portalLevel,
     this.rejectReason,
     this.latitude,
     this.longitude,
@@ -88,6 +90,9 @@ class CaptureRow {
 
   /// For a hack: a bonus popup was attached (glyph hack).
   final bool glyph;
+
+  /// For a hack: portal level inferred from the item levels.
+  final int? portalLevel;
   final String? rejectReason;
   final double? latitude;
   final double? longitude;
@@ -103,7 +108,7 @@ class HackRepository {
     final path = p.join(await getDatabasesPath(), 'hacks.db');
     final db = await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE captures (
@@ -115,6 +120,7 @@ class HackRepository {
             portal_name TEXT,
             parent_id INTEGER,
             glyph INTEGER NOT NULL DEFAULT 0,
+            portal_level INTEGER,
             raw_text TEXT NOT NULL,
             lines_json TEXT NOT NULL,
             screen_w REAL,
@@ -142,6 +148,9 @@ class HackRepository {
           await db.execute('ALTER TABLE captures ADD COLUMN portal_name TEXT');
           await db.execute('ALTER TABLE captures ADD COLUMN parent_id INTEGER');
           await db.execute('ALTER TABLE captures ADD COLUMN glyph INTEGER NOT NULL DEFAULT 0');
+        }
+        if (oldVersion < 3) {
+          await db.execute('ALTER TABLE captures ADD COLUMN portal_level INTEGER');
         }
       },
     );
@@ -189,7 +198,7 @@ class HackRepository {
     var hacks = 0;
     await _db.transaction((txn) async {
       await txn.delete('hack_items');
-      await txn.update('captures', {'glyph': 0});
+      await txn.update('captures', {'glyph': 0, 'portal_level': null});
       final rows = await txn.query('captures', orderBy: 'ts ASC, id ASC');
       final linker = _PopupLinker();
       for (final row in rows) {
@@ -236,25 +245,54 @@ class HackRepository {
       case CaptureKind.hack:
         linker.registerHack(id, capture.timestamp, result.signature);
         await _insertItems(txn, id, result.items);
+        await _updatePortalLevel(txn, id);
         return true;
       case CaptureKind.bonus:
         final parent = decision.parentId!;
         await _insertItems(txn, parent, result.items);
         await txn.update('captures', {'glyph': 1}, where: 'id = ?', whereArgs: [parent]);
+        await _updatePortalLevel(txn, parent);
         return false;
       default:
         return false;
     }
   }
 
-  Future<HackStats> stats({GlyphFilter glyph = GlyphFilter.all}) async {
-    final where = switch (glyph) {
-      GlyphFilter.all => "c.kind = '${CaptureKind.hack}'",
-      GlyphFilter.glyph => "c.kind = '${CaptureKind.hack}' AND c.glyph = 1",
-      GlyphFilter.noGlyph => "c.kind = '${CaptureKind.hack}' AND c.glyph = 0",
-    };
+  /// Recomputes a hack's inferred portal level from all its items.
+  Future<void> _updatePortalLevel(DatabaseExecutor db, int hackId) async {
+    final rows = await db.rawQuery(
+      'SELECT level, SUM(quantity) AS n FROM hack_items '
+      'WHERE capture_id = ? AND level IS NOT NULL GROUP BY level',
+      [hackId],
+    );
+    final counts = {for (final r in rows) r['level'] as int: (r['n'] as num).toInt()};
+    await db.update(
+      'captures',
+      {'portal_level': inferPortalLevel(counts, seed: hackId)},
+      where: 'id = ?',
+      whereArgs: [hackId],
+    );
+  }
+
+  /// [portalLevel]: inferred portal level, null for all.
+  Future<HackStats> stats({GlyphFilter glyph = GlyphFilter.all, int? portalLevel}) async {
+    final conditions = ["c.kind = '${CaptureKind.hack}'"];
+    final args = <Object>[];
+    switch (glyph) {
+      case GlyphFilter.all:
+        break;
+      case GlyphFilter.glyph:
+        conditions.add('c.glyph = 1');
+      case GlyphFilter.noGlyph:
+        conditions.add('c.glyph = 0');
+    }
+    if (portalLevel != null) {
+      conditions.add('c.portal_level = ?');
+      args.add(portalLevel);
+    }
+    final where = conditions.join(' AND ');
     final hacks = Sqflite.firstIntValue(
-          await _db.rawQuery('SELECT COUNT(*) FROM captures c WHERE $where'),
+          await _db.rawQuery('SELECT COUNT(*) FROM captures c WHERE $where', args),
         ) ??
         0;
     final rows = await _db.rawQuery('''
@@ -266,7 +304,7 @@ class HackRepository {
       JOIN captures c ON c.id = i.capture_id
       WHERE $where
       GROUP BY i.item, i.level, i.rarity
-      ORDER BY total DESC''');
+      ORDER BY total DESC''', args);
     return HackStats(
       hacks: hacks,
       items: [
@@ -311,6 +349,7 @@ class HackRepository {
           portalName: r['portal_name'] as String?,
           parentId: r['parent_id'] as int?,
           glyph: r['glyph'] == 1,
+          portalLevel: r['portal_level'] as int?,
           rejectReason: r['reject_reason'] as String?,
           latitude: (r['lat'] as num?)?.toDouble(),
           longitude: (r['lng'] as num?)?.toDouble(),
