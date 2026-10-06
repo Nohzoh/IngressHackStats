@@ -36,8 +36,66 @@ const bonusPopup = [
   OcrLine('L1 x2 Resonator', x: 528, y: 805, h: 38),
 ];
 
+/// Regular popup on a portal with an Ito En (−) (screenshot 3).
+const itoEnPopup = [
+  ...surroundings,
+  OcrLine('Szlama Ejzman', x: 315, y: 657, h: 40),
+  OcrLine('ITO EN (-) applied.', x: 310, y: 725, h: 34),
+  OcrLine('L1 x1 Power Cube', x: 118, y: 798, h: 38),
+  OcrLine('L2 x1 XMP Burster', x: 528, y: 798, h: 38),
+  OcrLine('L1 x3 XMP Burster', x: 118, y: 868, h: 38),
+];
+
+/// Bonus popup of the same hack (screenshot 4).
+const itoEnBonusPopup = [
+  ...surroundings,
+  OcrLine('Bonus items:', x: 333, y: 657, h: 40),
+  OcrLine('ITO EN (-) applied.', x: 310, y: 725, h: 34),
+  OcrLine('L3 x1 XMP Burster', x: 118, y: 798, h: 38),
+  OcrLine('L1 x2 XMP Burster', x: 528, y: 798, h: 38),
+];
+
 void main() {
   final parser = HackParser();
+
+  test('Ito En line: transmuter read, portal name still found above it', () {
+    final result = parser.parse(itoEnPopup, screenHeight: screenHeight);
+
+    expect(result.portalName, 'Szlama Ejzman');
+    expect(result.transmuter, Transmuter.minus);
+    expect(result.items.map((i) => i.toString()), [
+      'Power Cube L1',
+      'XMP Burster L2',
+      'XMP Burster L1 ×3',
+    ]);
+  });
+
+  test('Ito En line in the bonus popup', () {
+    final result = parser.parse(itoEnBonusPopup, screenHeight: screenHeight);
+
+    expect(result.isBonusPopup, isTrue);
+    expect(result.transmuter, Transmuter.minus);
+    expect(result.items.map((i) => i.toString()), [
+      'XMP Burster L3 [bonus]',
+      'XMP Burster L1 ×2 [bonus]',
+    ]);
+  });
+
+  test('Ito En (+) and OCR variants of the dash', () {
+    for (final text in ['ITO EN (+) applied.', 'ITO EN (—) applied.', 'IT0 EN (-) applied']) {
+      final result = parser.parse([
+        const OcrLine('Some Portal', y: 100, h: 30),
+        OcrLine(text, y: 160, h: 30),
+        const OcrLine('L5 x1 Resonator', y: 220, h: 30),
+      ]);
+      expect(result.transmuter, text.contains('+') ? Transmuter.plus : Transmuter.minus, reason: text);
+      expect(result.portalName, 'Some Portal', reason: text);
+    }
+  });
+
+  test('no Ito En line, no transmuter', () {
+    expect(parser.parse(regularPopup, screenHeight: screenHeight).transmuter, isNull);
+  });
 
   test('regular popup: two items on one row, portal name as title', () {
     final result = parser.parse(regularPopup, screenHeight: screenHeight);

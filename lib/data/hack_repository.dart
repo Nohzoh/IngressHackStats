@@ -30,6 +30,8 @@ abstract final class CaptureKind {
 
 enum GlyphFilter { all, glyph, noGlyph }
 
+enum TransmuterFilter { all, plus, minus, none }
+
 class ItemStat {
   const ItemStat({
     required this.item,
@@ -71,6 +73,7 @@ class CaptureRow {
     this.parentId,
     this.glyph = false,
     this.portalLevel,
+    this.transmuter,
     this.rejectReason,
     this.latitude,
     this.longitude,
@@ -93,6 +96,9 @@ class CaptureRow {
 
   /// For a hack: portal level inferred from the item levels.
   final int? portalLevel;
+
+  /// For a hack: Ito En transmuter announced in the popup ([Transmuter]).
+  final String? transmuter;
   final String? rejectReason;
   final double? latitude;
   final double? longitude;
@@ -108,7 +114,7 @@ class HackRepository {
     final path = p.join(await getDatabasesPath(), 'hacks.db');
     final db = await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE captures (
@@ -121,6 +127,7 @@ class HackRepository {
             parent_id INTEGER,
             glyph INTEGER NOT NULL DEFAULT 0,
             portal_level INTEGER,
+            transmuter TEXT,
             raw_text TEXT NOT NULL,
             lines_json TEXT NOT NULL,
             screen_w REAL,
@@ -152,6 +159,9 @@ class HackRepository {
         if (oldVersion < 3) {
           await db.execute('ALTER TABLE captures ADD COLUMN portal_level INTEGER');
         }
+        if (oldVersion < 4) {
+          await db.execute('ALTER TABLE captures ADD COLUMN transmuter TEXT');
+        }
       },
     );
     return HackRepository(db);
@@ -177,6 +187,7 @@ class HackRepository {
           'reject_reason': result.rejectReason,
           'portal_name': result.portalName,
           'parent_id': decision.parentId,
+          'transmuter': result.transmuter,
           'raw_text': capture.rawText,
           'lines_json': jsonEncode(capture.lines.map((l) => l.toJson()).toList()),
           'screen_w': capture.screenWidth,
@@ -222,6 +233,7 @@ class HackRepository {
             'reject_reason': result.rejectReason,
             'portal_name': result.portalName,
             'parent_id': decision.parentId,
+            'transmuter': result.transmuter,
           },
           where: 'id = ?',
           whereArgs: [id],
@@ -251,6 +263,14 @@ class HackRepository {
         final parent = decision.parentId!;
         await _insertItems(txn, parent, result.items);
         await txn.update('captures', {'glyph': 1}, where: 'id = ?', whereArgs: [parent]);
+        if (result.transmuter != null) {
+          // The regular popup may have been missed or misread: the bonus one
+          // carries the same "ITO EN applied" line.
+          await txn.rawUpdate(
+            'UPDATE captures SET transmuter = COALESCE(transmuter, ?) WHERE id = ?',
+            [result.transmuter, parent],
+          );
+        }
         await _updatePortalLevel(txn, parent);
         return false;
       default:
@@ -275,7 +295,11 @@ class HackRepository {
   }
 
   /// [portalLevel]: inferred portal level, null for all.
-  Future<HackStats> stats({GlyphFilter glyph = GlyphFilter.all, int? portalLevel}) async {
+  Future<HackStats> stats({
+    GlyphFilter glyph = GlyphFilter.all,
+    int? portalLevel,
+    TransmuterFilter transmuter = TransmuterFilter.all,
+  }) async {
     final conditions = ["c.kind = '${CaptureKind.hack}'"];
     final args = <Object>[];
     switch (glyph) {
@@ -285,6 +309,16 @@ class HackRepository {
         conditions.add('c.glyph = 1');
       case GlyphFilter.noGlyph:
         conditions.add('c.glyph = 0');
+    }
+    switch (transmuter) {
+      case TransmuterFilter.all:
+        break;
+      case TransmuterFilter.plus:
+        conditions.add("c.transmuter = '${Transmuter.plus}'");
+      case TransmuterFilter.minus:
+        conditions.add("c.transmuter = '${Transmuter.minus}'");
+      case TransmuterFilter.none:
+        conditions.add('c.transmuter IS NULL');
     }
     if (portalLevel != null) {
       conditions.add('c.portal_level = ?');
@@ -350,6 +384,7 @@ class HackRepository {
           parentId: r['parent_id'] as int?,
           glyph: r['glyph'] == 1,
           portalLevel: r['portal_level'] as int?,
+          transmuter: r['transmuter'] as String?,
           rejectReason: r['reject_reason'] as String?,
           latitude: (r['lat'] as num?)?.toDouble(),
           longitude: (r['lng'] as num?)?.toDouble(),

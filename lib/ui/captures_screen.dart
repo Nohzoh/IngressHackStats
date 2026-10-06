@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/hack_repository.dart';
+import '../parsing/hack_parser.dart';
 
 /// Raw captures with what the parser made of them: the place to check and
 /// calibrate the parser against real screens.
@@ -88,6 +89,7 @@ class _CaptureTile extends StatelessWidget {
       capture.kind,
       if (capture.portalLevel != null) 'P${capture.portalLevel}',
       if (capture.glyph) 'glyph',
+      if (capture.transmuter != null) Transmuter.label(capture.transmuter!),
       if (capture.portalName != null) capture.portalName!,
     ].join(' · ');
     return ExpansionTile(

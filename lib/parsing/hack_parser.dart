@@ -31,12 +31,27 @@ class ParsedItem {
   }
 }
 
+/// Ito En transmuter installed on the hacked portal, as announced by the
+/// "ITO EN (+) applied." / "ITO EN (-) applied." line of the popup.
+abstract final class Transmuter {
+  static const plus = 'plus';
+  static const minus = 'minus';
+
+  static String label(String value) => value == plus ? 'Ito En +' : 'Ito En −';
+}
+
 class ParseResult {
-  const ParseResult(this.items, {this.portalName, this.isBonusPopup = false}) : rejectReason = null;
+  const ParseResult(
+    this.items, {
+    this.portalName,
+    this.isBonusPopup = false,
+    this.transmuter,
+  }) : rejectReason = null;
   const ParseResult.rejected(String reason)
       : items = const [],
         portalName = null,
         isBonusPopup = false,
+        transmuter = null,
         rejectReason = reason;
 
   final List<ParsedItem> items;
@@ -46,6 +61,9 @@ class ParseResult {
 
   /// The second popup of a glyph hack, titled "Bonus items:".
   final bool isBonusPopup;
+
+  /// [Transmuter.plus], [Transmuter.minus] or null.
+  final String? transmuter;
 
   final String? rejectReason;
 
@@ -64,6 +82,7 @@ class ParseResult {
 /// Popup layout (Ingress Prime, English UI):
 ///
 ///     Szlama Ejzman                          ← portal name, or "Bonus items:"
+///     ITO EN (-) applied.                    ← only with a transmuter
 ///     [icon] L1 x1 Power Cube | [icon] L1 x1 Resonator
 ///     [icon] L2 x1 Resonator  | [icon] L1 x2 Resonator
 ///
@@ -83,6 +102,7 @@ class HackParser {
   static final _quantityToken = RegExp(r'^x\d{1,3}$');
   static final _levelToken = RegExp(r'^l[1-8]$');
   static const _rarityTokens = {'common', 'rare', 'vr'};
+  static final _itoEn = RegExp(r'it[o0]\s?en\s*\(?\s*([+-])');
 
   ParseResult parse(List<OcrLine> lines, {double screenHeight = 0}) {
     final tolerance = screenHeight > 0 ? screenHeight * 0.012 : 12.0;
@@ -109,13 +129,27 @@ class HackParser {
     if (items.isEmpty) return const ParseResult([]);
     if (items.length > maxItemsPerHack) return const ParseResult.rejected('too_many_items');
 
-    String? portalName;
     final first = firstItemRow!;
-    if (!isBonusPopup && first > 0) {
-      final title = rawRows[first - 1].trim();
-      if (title.isNotEmpty) portalName = title;
+    String? transmuter;
+    String? portalName;
+    // Header lines between the title and the items ("ITO EN (-) applied.").
+    for (var k = first - 1; k >= 0; k--) {
+      final row = rows[k];
+      final ito = _itoEn.firstMatch(row);
+      if (ito != null) {
+        transmuter = ito.group(1) == '+' ? Transmuter.plus : Transmuter.minus;
+        continue;
+      }
+      if (row.contains('applied')) continue;
+      if (!isBonusPopup && rawRows[k].trim().isNotEmpty) portalName = rawRows[k].trim();
+      break;
     }
-    return ParseResult(items, portalName: portalName, isBonusPopup: isBonusPopup);
+    return ParseResult(
+      items,
+      portalName: portalName,
+      isBonusPopup: isBonusPopup,
+      transmuter: transmuter,
+    );
   }
 
   ParsedItem? _parseSegment(String segment, {required bool bonus}) {

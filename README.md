@@ -33,8 +33,11 @@ Calibré sur de vraies captures (Ingress Prime, interface en anglais) :
 
 ```
 Szlama Ejzman                         ← nom du portail
+ITO EN (-) applied.                   ← seulement avec un transmuter
 L1 x1 Power Cube   |  L1 x1 Resonator ← deux colonnes : niveau, quantité, nom
 ```
+
+Si le portail porte un Ito En, une ligne « ITO EN (+) applied. » ou « ITO EN (-) applied. » s'intercale entre le titre et les items (dans les deux popups) : elle alimente le filtre Ito En.
 
 Un glyph hack affiche ensuite un second popup, intitulé « Bonus items: », avec la même mise en forme. L'app le rattache au hack précédent (moins de 60 s) : ses items sont comptés comme bonus et le hack est marqué « glyph ».
 

@@ -23,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _busy = false;
   GlyphFilter _glyphFilter = GlyphFilter.all;
   int? _levelFilter;
+  TransmuterFilter _transmuterFilter = TransmuterFilter.all;
   String? _error;
   Timer? _poll;
 
@@ -64,7 +65,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final pending = await _capture.drainPending();
       if (pending.isNotEmpty) await repo.ingest(pending);
       final running = await _capture.isRunning();
-      final stats = await repo.stats(glyph: _glyphFilter, portalLevel: _levelFilter);
+      final stats = await repo.stats(
+        glyph: _glyphFilter,
+        portalLevel: _levelFilter,
+        transmuter: _transmuterFilter,
+      );
       if (!mounted) return;
       setState(() {
         _running = running;
@@ -138,6 +143,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   _captureCard(context),
                   _filterBar(),
+                  _transmuterFilterBar(),
                   _levelFilterBar(),
                   _summaryCard(context),
                   ..._itemTiles(context),
@@ -187,6 +193,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         showSelectedIcon: false,
         onSelectionChanged: (selection) {
           setState(() => _glyphFilter = selection.first);
+          _sync();
+        },
+      ),
+    );
+  }
+
+  Widget _transmuterFilterBar() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: SegmentedButton<TransmuterFilter>(
+        segments: const [
+          ButtonSegment(value: TransmuterFilter.all, label: Text('Ito En : tous')),
+          ButtonSegment(value: TransmuterFilter.plus, label: Text('+')),
+          ButtonSegment(value: TransmuterFilter.minus, label: Text('−')),
+          ButtonSegment(value: TransmuterFilter.none, label: Text('Aucun')),
+        ],
+        selected: {_transmuterFilter},
+        showSelectedIcon: false,
+        onSelectionChanged: (selection) {
+          setState(() => _transmuterFilter = selection.first);
           _sync();
         },
       ),
