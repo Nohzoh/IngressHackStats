@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import '../parsing/item_catalog.dart';
 import '../parsing/portal_level.dart';
+import 'reward_stats.dart';
 
 /// What one reward tells about the studied item.
 class RewardObservation {
@@ -78,16 +79,9 @@ class DetailCell {
 
   /// "1,4 / réc." when the item is common (in at least half the rewards),
   /// "1/N" when rare, N being the average number of rewards needed to get it.
-  String format({String unit = 'réc.'}) {
-    if (rewards == 0) return '—';
-    final p = presence;
-    if (p <= 0) return '0';
-    if (p >= 0.5) return '${_decimal(perReward)} / $unit';
-    final n = 1 / p;
-    return '1/${n < 10 ? _decimal(n, digits: 1) : n.round()}';
-  }
+  String format({String unit = 'réc.'}) =>
+      rewards == 0 ? '—' : formatChance(presence, perReward, unit: unit);
 
-  static String _decimal(double v, {int digits = 2}) => v.toStringAsFixed(digits).replaceAll('.', ',');
 }
 
 /// Grid for one item: portal level (rows) × item variant × reward type.

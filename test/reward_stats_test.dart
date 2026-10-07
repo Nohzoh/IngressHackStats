@@ -65,4 +65,13 @@ void main() {
     expect(large, closeTo(0.031, 0.002));
     expect(RewardStats.margin95(0, 0), 0);
   });
+
+  test('headline: quantity when common, 1/N when rare', () {
+    expect(formatChance(1.0, 8.666), '8,67 / réc.');
+    expect(formatChance(0.5, 0.6, unit: 'hack'), '0,60 / hack');
+    expect(formatChance(1 / 3, 0.33), '1/3,0');
+    expect(formatChance(0.02, 0.02), '1/50');
+    expect(formatChance(0, 0), '0');
+    expect(formatPercent(0.333), '33,3 %');
+  });
 }

@@ -157,3 +157,17 @@ class RewardStats {
     return byQuantity != 0 ? byQuantity : a.label.compareTo(b.label);
   }
 }
+
+/// The headline figure for an item: "8,67 / réc." when it comes in at
+/// least half the rewards, otherwise "1/N", N being the average number of
+/// rewards needed to get it once.
+String formatChance(double presence, double perReward, {String unit = 'réc.'}) {
+  String decimal(double v, {int digits = 2}) => v.toStringAsFixed(digits).replaceAll('.', ',');
+  if (presence <= 0) return '0';
+  if (presence >= 0.5) return '${decimal(perReward)} / $unit';
+  final n = 1 / presence;
+  return '1/${n < 10 ? decimal(n, digits: 1) : n.round()}';
+}
+
+/// "33,3 %"
+String formatPercent(double v) => '${(100 * v).toStringAsFixed(1).replaceAll('.', ',')} %';

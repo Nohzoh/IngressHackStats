@@ -477,14 +477,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ];
     }
     final computed = _filter.type == RewardType.glyphHack;
-    String pct(double v) => '${(100 * v).toStringAsFixed(1)} %';
     return [
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
         child: Text(
           computed
-              ? 'Chance d’obtenir l’item au moins une fois par hack'
-              : 'Chance qu’une récompense contienne l’item',
+              ? 'Par hack avec glyph : quantité moyenne si fréquent, sinon 1 hack sur N'
+              : 'Par récompense : quantité moyenne si fréquent, sinon 1 récompense sur N',
           style: Theme.of(context).textTheme.labelMedium,
         ),
       ),
@@ -500,16 +499,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
           title: Text(s.label),
           subtitle: Text([
-            if (s.share != null) 'part ${pct(s.share!)}',
-            '${s.perReward.toStringAsFixed(2)} / ${computed ? 'hack' : 'récompense'}',
+            'chance ${formatPercent(s.presence)} ± ${formatPercent(s.presenceMargin)}',
+            if (s.share != null) 'part ${formatPercent(s.share!)}',
           ].join(' · ')),
-          trailing: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(pct(s.presence), style: Theme.of(context).textTheme.titleMedium),
-              Text('± ${pct(s.presenceMargin)}', style: Theme.of(context).textTheme.bodySmall),
-            ],
+          trailing: Text(
+            formatChance(s.presence, s.perReward, unit: computed ? 'hack' : 'réc.'),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
         ),
     ];
