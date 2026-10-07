@@ -55,16 +55,26 @@ L1 x1 Power Cube   |  L1 x1 Resonator ← deux colonnes : niveau, quantité, nom
 
 Si le portail porte un Ito En, une ligne « ITO EN (+) applied. » ou « ITO EN (-) applied. » s'intercale entre le titre et les items (dans les deux popups) : elle alimente le filtre Ito En.
 
-Un glyph hack affiche ensuite un second popup, intitulé « Bonus items: », avec la même mise en forme. L'app le rattache au hack précédent (moins de 60 s) : ses items sont comptés comme bonus et le hack est marqué « glyph ».
+Un glyph hack affiche ensuite un second popup, intitulé « Bonus items: », avec la même mise en forme.
 
-Le popup n'indique pas le niveau du portail : il est estimé comme le niveau le plus fréquent parmi les items reçus (bonus compris, pondéré par la quantité), avec un tirage déterministe en cas d'égalité. Attention au biais : filtrer sur « P5 » sélectionne les hacks où le L5 domine, donc la répartition des niveaux d'items sous ce filtre est biaisée par construction. Le filtre reste fiable pour les items sans niveau (mods, clés…).
+## Modèle : la récompense
 
-Le succès des glyphes vient de l'écran de fin de séquence (« HACKING BONUS / SPEED BONUS », avec la commande éventuelle, ex. MORE), rattaché au hack qui suit :
+L'unité de base est la **récompense** : un popup = une récompense, normale ou bonus de glyph. Les deux popups d'un glyph hack ne sont pas regroupés : chacun est une récompense avec ses propres propriétés (portail, Ito En, niveau estimé).
+
+Statistiques par item, pour le type de récompense choisi :
+- **chance** qu'une récompense contienne l'item, avec sa marge à 95 % (intervalle de Wilson) ;
+- **part** de l'item parmi tous les items reçus : comparable même si la taille des récompenses varie (un bonus contient d'autant plus d'items que la séquence de glyphes est réussie) ;
+- **quantité moyenne** par récompense.
+
+La vue **Hack + glyph** est calculée : ce qu'un joueur reçoit en tout sur un glyph hack (une récompense normale + une bonus), en supposant les deux tirages indépendants. Chance d'avoir l'item : 1 − (1 − p_normale)(1 − p_bonus).
+
+Le niveau du portail n'est pas affiché : il est estimé, pour chaque récompense, comme le niveau le plus fréquent parmi ses items (pondéré par la quantité), avec un tirage déterministe en cas d'égalité. Attention au biais : filtrer sur « P5 » sélectionne les récompenses où le L5 domine, donc la répartition des niveaux d'items sous ce filtre est biaisée par construction. Le filtre reste fiable pour les items sans niveau (mods, clés…).
+
+La qualité des glyphes vient de l'écran de fin de séquence (« HACKING BONUS / SPEED BONUS », avec la commande éventuelle, ex. MORE), rattaché à la récompense bonus qui suit (moins de 90 s) :
 - vitesse > 0 % : séquence parfaite ;
 - hacking > 0 % mais vitesse à 0 % : partielle ;
-- hacking à 0 % : ratée.
-
-Si cet écran n'a pas été capté, un popup bonus ou un gain d'AP hors des valeurs d'un hack simple (0, 100, 200, + bonus Hackstreak) indique quand même un glyph, sans détail.
+- hacking à 0 % : ratée ;
+- écran non capté : inconnue.
 
 Seul le texte de la forme `[niveau|rareté] x<quantité> <nom>` est retenu, ce qui écarte le COMM et les alertes affichés autour.
 
@@ -96,13 +106,14 @@ lib/
   models/ocr_capture.dart        capture OCR (lignes + positions + GPS)
   parsing/item_catalog.dart      catalogue des items et de leurs alias
   parsing/hack_parser.dart       lignes OCR → items (niveau, rareté, quantité, bonus)
-  data/hack_repository.dart      SQLite : captures brutes + items, statistiques
+  data/reward_repository.dart    SQLite : images brutes, récompenses et leurs items
+  stats/reward_stats.dart        chances, parts, marges, vue Hack + glyph calculée
   ui/                            écran principal et écran des captures
 ```
 
 Les captures brutes (texte et positions) sont conservées, ce qui permet de ré-analyser tout l'historique quand le parseur s'améliore.
 
-Un même popup lu sur plusieurs images n'est compté qu'une fois, grâce à deux filtres : côté natif (texte identique sous 10 s), puis côté Dart (même portail et même loot sous 20 s, marqué `duplicate`).
+Un même popup lu sur plusieurs images n'est compté qu'une fois, grâce à deux filtres : côté natif (texte identique sous 10 s), puis côté Dart (même popup sous 20 s, marqué `duplicate`).
 
 ## Dépannage
 

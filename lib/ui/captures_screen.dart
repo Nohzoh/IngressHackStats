@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../data/hack_repository.dart';
+import '../data/reward_repository.dart';
 import '../parsing/hack_parser.dart';
 
 /// Raw captures with what the parser made of them: the place to check and
@@ -8,7 +8,7 @@ import '../parsing/hack_parser.dart';
 class CapturesScreen extends StatefulWidget {
   const CapturesScreen({super.key, required this.repository});
 
-  final HackRepository repository;
+  final RewardRepository repository;
 
   @override
   State<CapturesScreen> createState() => _CapturesScreenState();
@@ -81,22 +81,22 @@ class _CaptureTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final summary = switch (capture.kind) {
       _ when capture.items.isNotEmpty => capture.items.join(', '),
-      CaptureKind.bonus => 'Bonus rattaché au hack #${capture.parentId}',
+      CaptureKind.glyphResult => 'Hacking ${capture.glyphHackBonus} % · vitesse ${capture.glyphSpeedBonus} %'
+          '${capture.parentId != null ? ' → bonus #${capture.parentId}' : ''}',
+      CaptureKind.ap => '+${capture.ap} AP',
       _ => capture.rejectReason ?? '—',
     };
     final title = [
       _formatTime(capture.timestamp),
-      capture.kind,
+      _kindLabel(capture),
       if (capture.portalLevel != null) 'P${capture.portalLevel}',
-      if (capture.glyphStatus != null && capture.glyphStatus != GlyphStatus.none)
-        GlyphStatus.label(capture.glyphStatus!),
+      if (capture.bonus && capture.glyphStatus != null) GlyphStatus.label(capture.glyphStatus!),
       if (capture.glyphCommand != null) capture.glyphCommand!,
-      if (capture.ap != null) '+${capture.ap} AP',
       if (capture.transmuter != null) Transmuter.label(capture.transmuter!),
       if (capture.portalName != null) capture.portalName!,
     ].join(' · ');
     return ExpansionTile(
-      leading: Icon(_icon(capture.kind)),
+      leading: Icon(_icon(capture)),
       title: Text('#${capture.id} · $title'),
       subtitle: Text(summary, maxLines: 2, overflow: TextOverflow.ellipsis),
       childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -110,9 +110,16 @@ class _CaptureTile extends StatelessWidget {
     );
   }
 
-  static IconData _icon(String kind) => switch (kind) {
-        CaptureKind.hack => Icons.check_circle_outline,
-        CaptureKind.bonus => Icons.add_circle_outline,
+  static String _kindLabel(CaptureRow c) => switch (c.kind) {
+        CaptureKind.reward => c.bonus ? 'bonus glyph' : 'récompense',
+        CaptureKind.glyphResult => 'fin de glyph',
+        CaptureKind.duplicate => 'doublon',
+        CaptureKind.ignored => 'ignorée',
+        _ => c.kind,
+      };
+
+  static IconData _icon(CaptureRow c) => switch (c.kind) {
+        CaptureKind.reward => c.bonus ? Icons.add_circle_outline : Icons.check_circle_outline,
         CaptureKind.glyphResult => Icons.gesture,
         CaptureKind.ap => Icons.bolt,
         CaptureKind.duplicate => Icons.copy_all,

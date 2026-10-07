@@ -54,13 +54,10 @@ class GlyphResult {
   final String? command;
 }
 
-/// Glyph outcome of a hack, derived from the glyph end screen, the bonus
-/// popup and the AP earned.
+/// Quality of the glyph sequence behind a bonus reward, read on the glyph
+/// end screen shown just before the reward popups.
 abstract final class GlyphStatus {
-  /// No sign of a glyph sequence.
-  static const none = 'none';
-
-  /// Whole sequence right (speed bonus above 0).
+  /// Whole sequence right, in time (speed bonus above 0).
   static const perfect = 'perfect';
 
   /// Some glyphs right, but not all.
@@ -69,36 +66,21 @@ abstract final class GlyphStatus {
   /// End screen seen with a 0% hacking bonus.
   static const failed = 'failed';
 
-  /// Glyph hack seen (bonus popup, or AP not in 0/100/200) but its end screen
-  /// was not captured.
+  /// Bonus reward whose glyph end screen was not captured.
   static const unknown = 'unknown';
 
-  /// AP of a hack without glyph: 0 (friendly), 100 (enemy), 200 (enemy
-  /// with double AP), plus the daily Hackstreak bonus (+500, +1000 on day 7).
-  /// Anything else means glyphs went through.
-  static const plainHackAp = {0, 100, 200, 500, 600, 700, 1000, 1100, 1200};
-
-  static String compute({
-    GlyphResult? result,
-    required bool hasBonusPopup,
-    int? ap,
-  }) {
-    if (result != null) {
-      if (result.speedBonus > 0) return perfect;
-      if (result.hackBonus > 0) return partial;
-      return failed;
-    }
-    if (hasBonusPopup) return unknown;
-    if (ap != null && !plainHackAp.contains(ap)) return unknown;
-    return none;
+  static String compute(GlyphResult? result) {
+    if (result == null) return unknown;
+    if (result.speedBonus > 0) return perfect;
+    if (result.hackBonus > 0) return partial;
+    return failed;
   }
 
   static String label(String status) => switch (status) {
-        none => 'Sans glyph',
         perfect => 'Glyph parfait',
         partial => 'Glyph partiel',
         failed => 'Glyph raté',
-        unknown => 'Glyph',
+        unknown => 'Score inconnu',
         _ => status,
       };
 }

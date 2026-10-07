@@ -231,14 +231,11 @@ void glyphTests() {
     expect(result.ap, 273);
   });
 
-  test('glyph status', () {
+  test('glyph status of a bonus reward', () {
     GlyphResult g(int hack, int speed) => GlyphResult(hackBonus: hack, speedBonus: speed);
-    expect(GlyphStatus.compute(result: g(38, 95), hasBonusPopup: true), GlyphStatus.perfect);
-    expect(GlyphStatus.compute(result: g(20, 0), hasBonusPopup: true), GlyphStatus.partial);
-    expect(GlyphStatus.compute(result: g(0, 0), hasBonusPopup: false), GlyphStatus.failed);
-    expect(GlyphStatus.compute(hasBonusPopup: true), GlyphStatus.unknown);
-    expect(GlyphStatus.compute(hasBonusPopup: false, ap: 273), GlyphStatus.unknown);
-    expect(GlyphStatus.compute(hasBonusPopup: false, ap: 100), GlyphStatus.none);
-    expect(GlyphStatus.compute(hasBonusPopup: false), GlyphStatus.none);
+    expect(GlyphStatus.compute(g(38, 95)), GlyphStatus.perfect);
+    expect(GlyphStatus.compute(g(20, 0)), GlyphStatus.partial);
+    expect(GlyphStatus.compute(g(0, 0)), GlyphStatus.failed);
+    expect(GlyphStatus.compute(null), GlyphStatus.unknown);
   });
 }

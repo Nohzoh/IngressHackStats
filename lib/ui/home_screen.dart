@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../capture/capture_channel.dart';
-import '../data/hack_repository.dart';
-import '../parsing/item_catalog.dart';
+import '../data/reward_repository.dart';
+import '../stats/reward_stats.dart';
 import 'captures_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -16,14 +16,12 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _capture = const CaptureChannel();
-  HackRepository? _repo;
-  HackStats? _stats;
+  RewardRepository? _repo;
+  RewardStats? _stats;
   bool _running = false;
   bool _debug = false;
   bool _busy = false;
-  GlyphFilter _glyphFilter = GlyphFilter.all;
-  int? _levelFilter;
-  TransmuterFilter _transmuterFilter = TransmuterFilter.all;
+  RewardFilter _filter = const RewardFilter();
   Map<String, Object?> _diag = const {};
   Map<String, int> _kinds = const {};
   String _serviceLog = '';
@@ -51,7 +49,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _init() async {
     try {
-      _repo = await HackRepository.open();
+      _repo = await RewardRepository.open();
       _debug = await _capture.isDebug();
       await _sync();
       _poll = Timer.periodic(const Duration(seconds: 5), (_) => _sync());
@@ -71,11 +69,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final diag = await _capture.diagnostics();
       final kinds = await repo.countByKind();
       final serviceLog = await _capture.serviceLog();
-      final stats = await repo.stats(
-        glyph: _glyphFilter,
-        portalLevel: _levelFilter,
-        transmuter: _transmuterFilter,
-      );
+      final stats = await repo.stats(_filter);
       if (!mounted) return;
       setState(() {
         _running = running;
@@ -152,9 +146,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   _captureCard(context),
                   _diagnosticsCard(context),
-                  _filterBar(),
-                  _transmuterFilterBar(),
-                  _levelFilterBar(),
+                  _typeBar(),
+                  if (_filter.usesGlyph) _glyphBar(),
+                  _transmuterBar(),
+                  _levelBar(),
                   _summaryCard(context),
                   ..._itemTiles(context),
                 ],
@@ -243,22 +238,41 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _filterBar() {
+  void _setFilter(RewardFilter filter) {
+    setState(() => _filter = filter);
+    _sync();
+  }
+
+  RewardFilter _copyFilter({
+    RewardType? type,
+    Object? portalLevel = _keep,
+    TransmuterFilter? transmuter,
+    GlyphFilter? glyph,
+  }) =>
+      RewardFilter(
+        type: type ?? _filter.type,
+        portalLevel: identical(portalLevel, _keep) ? _filter.portalLevel : portalLevel as int?,
+        transmuter: transmuter ?? _filter.transmuter,
+        glyph: glyph ?? _filter.glyph,
+      );
+
+  static const _keep = Object();
+
+  Widget _chips<T>(String? title, List<T> values, T selected, String Function(T) label, void Function(T) onSelected) {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.only(bottom: 6),
       child: Row(
         children: [
-          for (final filter in GlyphFilter.values)
+          if (title != null)
+            Padding(padding: const EdgeInsets.only(right: 8), child: Text(title)),
+          for (final value in values)
             Padding(
               padding: const EdgeInsets.only(right: 6),
               child: ChoiceChip(
-                label: Text(filter.label),
-                selected: _glyphFilter == filter,
-                onSelected: (_) {
-                  setState(() => _glyphFilter = filter);
-                  _sync();
-                },
+                label: Text(label(value)),
+                selected: value == selected,
+                onSelected: (_) => onSelected(value),
               ),
             ),
         ],
@@ -266,64 +280,76 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _transmuterFilterBar() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: SegmentedButton<TransmuterFilter>(
-        segments: const [
-          ButtonSegment(value: TransmuterFilter.all, label: Text('Ito En : tous')),
-          ButtonSegment(value: TransmuterFilter.plus, label: Text('+')),
-          ButtonSegment(value: TransmuterFilter.minus, label: Text('−')),
-          ButtonSegment(value: TransmuterFilter.none, label: Text('Aucun')),
-        ],
-        selected: {_transmuterFilter},
-        showSelectedIcon: false,
-        onSelectionChanged: (selection) {
-          setState(() => _transmuterFilter = selection.first);
-          _sync();
+  Widget _typeBar() => Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: _chips<RewardType>(
+          null,
+          RewardType.values,
+          _filter.type,
+          (t) => t.label,
+          (t) => _setFilter(_copyFilter(type: t)),
+        ),
+      );
+
+  Widget _glyphBar() => _chips<GlyphFilter>(
+        'Glyph',
+        GlyphFilter.values,
+        _filter.glyph,
+        (g) => g.label,
+        (g) => _setFilter(_copyFilter(glyph: g)),
+      );
+
+  Widget _transmuterBar() => _chips<TransmuterFilter>(
+        'Ito En',
+        TransmuterFilter.values,
+        _filter.transmuter,
+        (t) => switch (t) {
+          TransmuterFilter.all => 'Tous',
+          TransmuterFilter.plus => '+',
+          TransmuterFilter.minus => '−',
+          TransmuterFilter.none => 'Aucun',
         },
-      ),
-    );
-  }
+        (t) => _setFilter(_copyFilter(transmuter: t)),
+      );
 
-  Widget _levelFilterBar() {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          const Padding(
-            padding: EdgeInsets.only(right: 8),
-            child: Text('Portail'),
-          ),
-          for (final level in <int?>[null, 1, 2, 3, 4, 5, 6, 7, 8])
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: ChoiceChip(
-                label: Text(level == null ? 'Tous' : 'P$level'),
-                selected: _levelFilter == level,
-                onSelected: (_) {
-                  setState(() => _levelFilter = level);
-                  _sync();
-                },
-              ),
-            ),
-        ],
-      ),
-    );
-  }
+  Widget _levelBar() => _chips<int?>(
+        'Portail',
+        const [null, 1, 2, 3, 4, 5, 6, 7, 8],
+        _filter.portalLevel,
+        (l) => l == null ? 'Tous' : 'P$l',
+        (l) => _setFilter(_copyFilter(portalLevel: l)),
+      );
 
   Widget _summaryCard(BuildContext context) {
     final stats = _stats;
     final text = Theme.of(context).textTheme;
+    final computed = _filter.type == RewardType.glyphHack;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
+        child: Column(
           children: [
-            _figure('${stats?.hacks ?? 0}', 'hacks', text),
-            _figure('${stats?.totalItems ?? 0}', 'items', text),
-            _figure((stats?.itemsPerHack ?? 0).toStringAsFixed(1), 'items / hack', text),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _figure('${stats?.rewards ?? 0}', computed ? 'hacks (min.)' : 'récompenses', text),
+                if (!computed) _figure('${stats?.totalItems ?? 0}', 'items', text),
+                _figure(
+                  (stats?.itemsPerReward ?? 0).toStringAsFixed(1),
+                  computed ? 'items / hack' : 'items / récompense',
+                  text,
+                ),
+              ],
+            ),
+            if (computed)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Calculé : une récompense normale + une récompense bonus, tirages supposés indépendants.',
+                  style: text.bodySmall,
+                  textAlign: TextAlign.center,
+                ),
+              ),
           ],
         ),
       ),
@@ -339,33 +365,43 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   List<Widget> _itemTiles(BuildContext context) {
     final stats = _stats;
-    if (stats == null || stats.hacks == 0) {
+    if (stats == null || stats.rewards == 0) {
       return const [
         Padding(
           padding: EdgeInsets.all(24),
-          child: Text('Aucun hack enregistré pour le moment.', textAlign: TextAlign.center),
+          child: Text('Aucune récompense pour ces filtres.', textAlign: TextAlign.center),
         ),
       ];
     }
+    final computed = _filter.type == RewardType.glyphHack;
+    String pct(double v) => '${(100 * v).toStringAsFixed(1)} %';
     return [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+        child: Text(
+          computed
+              ? 'Chance d’obtenir l’item au moins une fois par hack'
+              : 'Chance qu’une récompense contienne l’item',
+          style: Theme.of(context).textTheme.labelMedium,
+        ),
+      ),
       for (final s in stats.items)
         ListTile(
           dense: true,
-          title: Text(_label(s)),
-          subtitle: Text(
-            'dans ${(100 * s.hacksWith / stats.hacks).toStringAsFixed(1)} % des hacks'
-            ' · ${(s.total / stats.hacks).toStringAsFixed(2)} / hack'
-            '${s.bonusTotal > 0 ? ' · ${s.bonusTotal} en bonus' : ''}',
+          title: Text(s.label),
+          subtitle: Text([
+            if (s.share != null) 'part ${pct(s.share!)}',
+            '${s.perReward.toStringAsFixed(2)} / ${computed ? 'hack' : 'récompense'}',
+          ].join(' · ')),
+          trailing: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(pct(s.presence), style: Theme.of(context).textTheme.titleMedium),
+              Text('± ${pct(s.presenceMargin)}', style: Theme.of(context).textTheme.bodySmall),
+            ],
           ),
-          trailing: Text('${s.total}', style: Theme.of(context).textTheme.titleMedium),
         ),
     ];
-  }
-
-  static String _label(ItemStat s) {
-    final buf = StringBuffer(s.item);
-    if (s.level != null) buf.write(' L${s.level}');
-    if (s.rarity != null) buf.write(' · ${Rarity.label(s.rarity!)}');
-    return buf.toString();
   }
 }
