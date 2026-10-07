@@ -36,12 +36,14 @@ object ServiceLog {
 
     fun error(context: Context, where: String, e: Throwable) {
         val cause = generateSequence(e) { it.cause }.last()
-        val origin = e.stackTrace.firstOrNull { it.className.startsWith("io.nohzoh") }
+        val frames = e.stackTrace.take(6).joinToString(" < ") {
+            "${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}"
+        }
         log(
             context,
             "ERREUR $where : ${e.javaClass.simpleName}: ${e.message}" +
                 (if (cause !== e) " (cause : ${cause.javaClass.simpleName}: ${cause.message})" else "") +
-                (origin?.let { " @ ${it.fileName}:${it.lineNumber}" } ?: ""),
+                " @ $frames",
         )
     }
 

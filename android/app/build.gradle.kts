@@ -41,6 +41,10 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName(if (releaseKeystore != null) "release" else "debug")
+            // R8 broke ML Kit's initialisation (NullPointerException in
+            // TextRecognition.getClient) and makes stack traces unreadable.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
