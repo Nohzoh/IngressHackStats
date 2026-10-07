@@ -128,6 +128,27 @@ void main() {
     expect(result.items.map((i) => i.item), ['Power Cube', 'Resonator']);
   });
 
+  test('level read even when OCR drops or misreads the "L"', () {
+    // Real readings of the same bonus popup (drone hack, Ito En −).
+    final result = parser.parse(const [
+      OcrLine('Bonus items:', x: 300, y: 650, h: 40),
+      OcrLine('ITO EN (-) applied.', x: 300, y: 720, h: 34),
+      OcrLine('L8 x1 Ultra Strike', x: 100, y: 800, h: 38),
+      OcrLine('1* L7 x1 XMP Burster', x: 500, y: 800, h: 38),
+      OcrLine('de foemation Yogs', x: 600, y: 850, h: 30),
+      OcrLine('8 x8 XMP Burster', x: 100, y: 900, h: 38),
+      OcrLine('i6 x2 Resonator', x: 500, y: 900, h: 38),
+    ], screenHeight: screenHeight);
+
+    expect(result.transmuter, Transmuter.minus);
+    expect(result.items.map((i) => i.toString()), [
+      'Ultra Strike L8 [bonus]',
+      'XMP Burster L7 [bonus]',
+      'XMP Burster L8 ×8 [bonus]',
+      'Resonator L6 ×2 [bonus]',
+    ]);
+  });
+
   test('"×" is read like "x"', () {
     final item = parser.parse(const [OcrLine('L8 ×3 Ultra Strike')]).items.single;
     expect(item.level, 8);

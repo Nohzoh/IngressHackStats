@@ -155,7 +155,9 @@ class HackParser {
   static final _level = RegExp(r'(^|[^a-z0-9])l\s?([1-8])($|[^0-9])');
   static final _quantity = RegExp(r'(^|\s)x\s?(\d{1,3})($|\s)');
   static final _quantityToken = RegExp(r'^x\d{1,3}$');
-  static final _levelToken = RegExp(r'^l[1-8]$');
+  /// Level just before the quantity. OCR sometimes drops the coloured "L"
+  /// or reads it as "i", "|" or "!": "8 x8 XMP Burster" is still level 8.
+  static final _levelToken = RegExp(r'^[li|!]?[1-8]$');
   static const _rarityTokens = {'common', 'rare', 'vr'};
   static final _itoEn = RegExp(r'it[o0]\s?en\s*\(?\s*([+-])');
   static final _percent = RegExp(r'(\d{1,4})\s?%');
@@ -256,9 +258,13 @@ class HackParser {
     final type = _matcher.match(segment);
     if (type == null) return null;
     final withoutLevel = segment.replaceAll(_level, ' ');
+    final tokens = segment.split(' ');
+    final leadingLevel = tokens.length > 1 && _levelToken.hasMatch(tokens[0]) && _quantityToken.hasMatch(tokens[1])
+        ? int.parse(tokens[0].substring(tokens[0].length - 1))
+        : null;
     return ParsedItem(
       item: type.name,
-      level: type.leveled ? parseLevel(segment) : null,
+      level: type.leveled ? leadingLevel ?? parseLevel(segment) : null,
       rarity: (type.hasRarity ? parseRarity(segment) : null) ?? type.defaultRarity,
       quantity: parseQuantity(withoutLevel) ?? 1,
       bonus: bonus,
