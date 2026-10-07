@@ -19,6 +19,11 @@ class CaptureChannel {
   Future<void> setDebug(bool enabled) =>
       _channel.invokeMethod<void>('setDebug', {'enabled': enabled});
 
+  /// Minimum delay between two OCR passes, in milliseconds.
+  Future<int> ocrInterval() async => await _channel.invokeMethod<int>('getOcrInterval') ?? 250;
+
+  Future<void> setOcrInterval(int ms) => _channel.invokeMethod<void>('setOcrInterval', {'ms': ms});
+
   /// Native pipeline counters (frames, OCR runs, kept frames, last text…).
   Future<Map<String, Object?>> diagnostics() async =>
       await _channel.invokeMapMethod<String, Object?>('diagnostics') ?? const {};

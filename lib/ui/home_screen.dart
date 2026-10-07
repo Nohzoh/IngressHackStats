@@ -20,6 +20,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   RewardStats? _stats;
   bool _running = false;
   bool _debug = false;
+  int _ocrInterval = 250;
   bool _busy = false;
   RewardFilter _filter = const RewardFilter();
   Map<String, Object?> _diag = const {};
@@ -51,6 +52,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       _repo = await RewardRepository.open();
       _debug = await _capture.isDebug();
+      _ocrInterval = await _capture.ocrInterval();
       await _sync();
       _poll = Timer.periodic(const Duration(seconds: 5), (_) => _sync());
     } catch (e) {
@@ -103,6 +105,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _setOcrInterval(int ms) async {
+    await _capture.setOcrInterval(ms);
+    setState(() => _ocrInterval = ms);
   }
 
   Future<void> _setDebug(bool value) async {
@@ -176,6 +183,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               child: Text(_running ? 'Arrêter' : 'Démarrer'),
             ),
           ),
+          ListTile(
+            title: const Text('Fréquence d’analyse'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Plus rapide : moins de popups manqués, plus de batterie'),
+                const SizedBox(height: 6),
+                SegmentedButton<int>(
+                  segments: const [
+                    ButtonSegment(value: 250, label: Text('¼ s')),
+                    ButtonSegment(value: 500, label: Text('½ s')),
+                    ButtonSegment(value: 1000, label: Text('1 s')),
+                  ],
+                  selected: {_ocrInterval},
+                  emptySelectionAllowed: true,
+                  showSelectedIcon: false,
+                  onSelectionChanged: (s) {
+                    if (s.isNotEmpty) _setOcrInterval(s.first);
+                  },
+                ),
+              ],
+            ),
+          ),
           SwitchListTile(
             title: const Text('Mode calibration'),
             subtitle: const Text("Enregistre tout le texte lu à l'écran, même hors hack"),
@@ -206,6 +236,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         children: [
           Text('Ignorées (app au premier plan) : ${n('skippedAppVisible')}', style: small),
           Text('Erreurs OCR : ${n('ocrErrors')}', style: small),
+          Text(_ocrSpeed(n), style: small),
           if (lastError.isNotEmpty) Text('Dernière erreur : $lastError', style: small),
           Text('En base : ${kinds.isEmpty ? 'rien' : kinds}', style: small),
           const SizedBox(height: 8),
@@ -236,6 +267,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ],
       ),
     );
+  }
+
+  /// Average OCR duration and passes per second since the capture started.
+  String _ocrSpeed(int Function(String) n) {
+    final runs = n('ocrRuns');
+    if (runs == 0) return 'Analyse OCR : —';
+    final avg = n('ocrTotalMs') / runs;
+    final elapsed = (n('now') - n('startedAt')) / 1000;
+    final rate = elapsed > 0 ? runs / elapsed : 0;
+    return 'Analyse OCR : ${avg.round()} ms en moyenne · ${rate.toStringAsFixed(1)} / s'
+        ' (réglage : ${n('ocrIntervalMs')} ms)';
   }
 
   void _setFilter(RewardFilter filter) {

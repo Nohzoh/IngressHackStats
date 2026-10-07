@@ -58,8 +58,7 @@ class CaptureService : Service() {
         private const val CHANNEL_ID = "capture"
         private const val NOTIFICATION_ID = 1
 
-        /** Minimum delay between two OCR passes. */
-        private const val OCR_INTERVAL_MS = 1000L
+        const val DEFAULT_OCR_INTERVAL_MS = 250L
 
         /** Same text seen again within this window is not stored twice. */
         private const val DEDUP_WINDOW_MS = 10_000L
@@ -73,6 +72,12 @@ class CaptureService : Service() {
 
         /** When true, every distinct OCR text is stored (for parser calibration). */
         @Volatile var debugMode = false
+
+        /**
+         * Minimum delay between two OCR passes, set from the app. Only one
+         * pass runs at a time, so the real rate is also capped by OCR speed.
+         */
+        @Volatile var ocrIntervalMs = DEFAULT_OCR_INTERVAL_MS
 
         /** Set by [MainActivity]: OCR is paused while our own UI is on screen. */
         @Volatile var appVisible = false
@@ -303,12 +308,13 @@ class CaptureService : Service() {
                 Diagnostics.skippedAppVisible++
                 return
             }
-            if (now - lastOcrAt < OCR_INTERVAL_MS) return
+            if (now - lastOcrAt < ocrIntervalMs) return
             if (!ocrBusy.compareAndSet(false, true)) return
             lastOcrAt = now
             Diagnostics.ocrRuns++
             val bitmap = image.toBitmap()
             val capturedAt = System.currentTimeMillis()
+            val ocrStart = SystemClock.elapsedRealtime()
             val client = recognizer
             if (client == null) {
                 ocrBusy.set(false)
@@ -323,6 +329,7 @@ class CaptureService : Service() {
                     Diagnostics.lastError = "ocr: ${e.message}"
                 }
                 .addOnCompleteListener(ocrExecutor) {
+                    Diagnostics.ocrTotalMs += SystemClock.elapsedRealtime() - ocrStart
                     bitmap.recycle()
                     ocrBusy.set(false)
                 }

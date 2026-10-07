@@ -26,6 +26,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         ServiceLog.installCrashHandler(this)
+        CaptureService.ocrIntervalMs = prefs().getLong(PREF_OCR_INTERVAL, CaptureService.DEFAULT_OCR_INTERVAL_MS)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -40,6 +41,14 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "isDebug" -> result.success(CaptureService.debugMode)
+                    "getOcrInterval" -> result.success(CaptureService.ocrIntervalMs)
+                    "setOcrInterval" -> {
+                        val ms = (call.argument<Number>("ms")?.toLong() ?: CaptureService.DEFAULT_OCR_INTERVAL_MS)
+                            .coerceIn(100L, 5_000L)
+                        CaptureService.ocrIntervalMs = ms
+                        prefs().edit().putLong(PREF_OCR_INTERVAL, ms).apply()
+                        result.success(null)
+                    }
                     "drainPending" -> result.success(PendingStore.drain(this))
                     "diagnostics" -> result.success(Diagnostics.toMap())
                     "serviceLog" -> result.success(ServiceLog.read(this))
@@ -135,11 +144,14 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun prefs() = getSharedPreferences("settings", MODE_PRIVATE)
+
     private fun granted(permission: String) =
         ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
     companion object {
         private const val CHANNEL = "ingresshackstats/capture"
+        private const val PREF_OCR_INTERVAL = "ocrIntervalMs"
         private const val REQ_PERMISSIONS = 4201
         private const val REQ_PROJECTION = 4202
     }
