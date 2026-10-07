@@ -20,6 +20,15 @@ void main() {
     expect(stats.items.last.presence, 0.25);
   });
 
+  test('equal chance: the item received in larger numbers comes first', () {
+    final stats = RewardStats.fromCounts(3, const [
+      ItemCount(item: 'Ultra Strike', level: 8, rewardsWith: 3, quantity: 3),
+      ItemCount(item: 'XMP Burster', level: 8, rewardsWith: 3, quantity: 26),
+      ItemCount(item: 'Power Cube', level: 8, rewardsWith: 1, quantity: 1),
+    ]);
+    expect(stats.items.map((i) => i.item), ['XMP Burster', 'Ultra Strike', 'Power Cube']);
+  });
+
   test('hack with glyph combines both rewards as independent draws', () {
     final stats = RewardStats.glyphHack(
       regularRewards: 10,

@@ -149,8 +149,11 @@ class RewardStats {
     return z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom;
   }
 
+  /// Most likely first; at equal chance, the one received in larger numbers.
   static int _byPresence(ItemStat a, ItemStat b) {
     final byPresence = b.presence.compareTo(a.presence);
-    return byPresence != 0 ? byPresence : a.label.compareTo(b.label);
+    if (byPresence != 0) return byPresence;
+    final byQuantity = b.perReward.compareTo(a.perReward);
+    return byQuantity != 0 ? byQuantity : a.label.compareTo(b.label);
   }
 }
