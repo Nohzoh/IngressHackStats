@@ -113,7 +113,11 @@ lib/
 
 Les captures brutes (texte et positions) sont conservées, ce qui permet de ré-analyser tout l'historique quand le parseur s'améliore.
 
-Un même popup lu sur plusieurs images n'est compté qu'une fois, grâce à deux filtres : côté natif (texte identique sous 10 s), puis côté Dart (même popup sous 20 s, marqué `duplicate`).
+Un même popup est lu sur plusieurs images, et l'OCR ne le lit pas toujours à l'identique (un « L8 » manqué change le contenu). Il est donc reconnu à son contexte plutôt qu'à son contenu exact (`lib/data/popup_linker.dart`) :
+- récompense normale : même portail relu dans les 60 s ;
+- récompense bonus : aucune nouvelle récompense normale ni écran de fin de glyph depuis le bonus précédent, relu dans les 30 s.
+
+Parmi les lectures d'un même popup, la plus complète (items, niveaux, raretés) est gardée.
 
 ## Dépannage
 

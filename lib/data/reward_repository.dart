@@ -6,6 +6,7 @@ import 'package:sqflite/sqflite.dart';
 import '../models/ocr_capture.dart';
 import '../parsing/hack_parser.dart';
 import '../parsing/portal_level.dart';
+import 'popup_linker.dart';
 import '../stats/reward_stats.dart';
 
 /// What a stored frame turned out to be.
@@ -156,7 +157,7 @@ class RewardRepository {
   final Database _db;
   final HackParser _parser;
 
-  static const _schemaVersion = 6;
+  static const _schemaVersion = 7;
 
   static Future<RewardRepository> open() async {
     final path = p.join(await getDatabasesPath(), 'hacks.db');
@@ -168,8 +169,11 @@ class RewardRepository {
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 6) {
           await _migrateToRewards(db);
-          needsReparse = true;
+        } else if (oldVersion < 7) {
+          await db.execute('ALTER TABLE captures ADD COLUMN read_score INTEGER');
         }
+        // Linking rules changed with each version: rebuild from raw frames.
+        needsReparse = true;
       },
     );
     final repo = RewardRepository(db);
@@ -195,6 +199,7 @@ class RewardRepository {
         glyph_status TEXT,
         ap INTEGER,
         parent_id INTEGER,
+        read_score INTEGER,
         raw_text TEXT NOT NULL,
         lines_json TEXT NOT NULL,
         screen_w REAL,
@@ -241,13 +246,13 @@ class RewardRepository {
 
     var newRewards = 0;
     await _db.transaction((txn) async {
-      final linker = await _Linker.resume(txn);
+      final linker = await _resumeLinker(txn);
       for (final capture in captures) {
         final result = _parser.parse(capture.lines, screenHeight: capture.screenHeight);
-        final kind = linker.classify(capture, result);
+        final decision = linker.classify(timestamp: capture.timestamp, result: result, debug: capture.debug);
         final id = await txn.insert('captures', {
           'ts': capture.timestamp,
-          ..._frameColumns(result, kind),
+          ..._frameColumns(result, decision),
           'raw_text': capture.rawText,
           'lines_json': jsonEncode(capture.lines.map((l) => l.toJson()).toList()),
           'screen_w': capture.screenWidth,
@@ -257,7 +262,7 @@ class RewardRepository {
           'accuracy': capture.accuracy,
           'debug': capture.debug ? 1 : 0,
         });
-        if (await _apply(txn, id, capture, result, kind, linker)) newRewards++;
+        if (await _apply(txn, id, capture, result, decision, linker)) newRewards++;
       }
     });
     return newRewards;
@@ -274,7 +279,7 @@ class RewardRepository {
         columns: ['id', 'ts', 'lines_json', 'screen_h', 'debug'],
         orderBy: 'ts ASC, id ASC',
       );
-      final linker = _Linker();
+      final linker = PopupLinker();
       for (final row in rows) {
         final lines = (jsonDecode(row['lines_json'] as String) as List<dynamic>)
             .map((e) => OcrLine.fromJson(e as Map<String, dynamic>))
@@ -286,29 +291,30 @@ class RewardRepository {
           debug: row['debug'] == 1,
         );
         final result = _parser.parse(lines, screenHeight: capture.screenHeight);
-        final kind = linker.classify(capture, result);
+        final decision = linker.classify(timestamp: capture.timestamp, result: result, debug: capture.debug);
         final id = row['id'] as int;
         await txn.update(
           'captures',
           {
-            ..._frameColumns(result, kind),
+            ..._frameColumns(result, decision),
             // Derived from links, recomputed by _apply.
             'portal_level': null,
             'glyph_status': null,
-            'parent_id': null,
           },
           where: 'id = ?',
           whereArgs: [id],
         );
-        if (await _apply(txn, id, capture, result, kind, linker)) rewards++;
+        if (await _apply(txn, id, capture, result, decision, linker)) rewards++;
       }
     });
     return rewards;
   }
 
   /// What a single frame shows, independently of the frames around it.
-  static Map<String, Object?> _frameColumns(ParseResult result, String kind) => {
-        'kind': kind,
+  static Map<String, Object?> _frameColumns(ParseResult result, LinkDecision decision) => {
+        'kind': decision.kind,
+        'parent_id': decision.target,
+        'read_score': result.isHack ? PopupLinker.readScore(result) : null,
         'bonus': result.isBonusPopup ? 1 : 0,
         'signature': result.isHack ? result.signature : null,
         'reject_reason': result.rejectReason,
@@ -326,14 +332,15 @@ class RewardRepository {
     int id,
     OcrCapture capture,
     ParseResult result,
-    String kind,
-    _Linker linker,
+    LinkDecision decision,
+    PopupLinker linker,
   ) async {
-    switch (kind) {
+    switch (decision.kind) {
       case CaptureKind.glyphResult:
-        linker.setPendingGlyph(id, capture.timestamp, result.glyph!);
+        linker.glyphStored(id, capture.timestamp, result.glyph!);
         return false;
       case CaptureKind.reward:
+        linker.rewardStored(id, capture.timestamp, result);
         await _insertItems(txn, id, result.items);
         final columns = <String, Object?>{
           'portal_level': inferPortalLevel(_levelCounts(result.items), seed: id),
@@ -350,9 +357,80 @@ class RewardRepository {
         }
         await txn.update('captures', columns, where: 'id = ?', whereArgs: [id]);
         return true;
+      case CaptureKind.duplicate:
+        final target = decision.target;
+        if (target != null && decision.replace) await _replaceReading(txn, target, result);
+        return false;
       default:
         return false;
     }
+  }
+
+  /// A better reading of reward [target] was found: keep its items instead.
+  Future<void> _replaceReading(Transaction txn, int target, ParseResult result) async {
+    await txn.delete('reward_items', where: 'capture_id = ?', whereArgs: [target]);
+    await _insertItems(txn, target, result.items);
+    await txn.rawUpdate(
+      'UPDATE captures SET signature = ?, read_score = ?, portal_level = ?, '
+      'portal_name = COALESCE(?, portal_name), transmuter = COALESCE(?, transmuter) WHERE id = ?',
+      [
+        result.signature,
+        PopupLinker.readScore(result),
+        inferPortalLevel(_levelCounts(result.items), seed: target),
+        result.portalName,
+        result.transmuter,
+        target,
+      ],
+    );
+  }
+
+  /// Linker state rebuilt from the last stored frames, so a batch drained
+  /// later still matches the popups of the previous batch.
+  static Future<PopupLinker> _resumeLinker(DatabaseExecutor db) async {
+    final linker = PopupLinker();
+    final rows = await db.query(
+      'captures',
+      columns: [
+        'id', 'ts', 'kind', 'bonus', 'portal_name', 'read_score', 'parent_id', 'ap',
+        'glyph_hack_bonus', 'glyph_speed_bonus', 'glyph_command',
+      ],
+      where: 'kind IN (?, ?, ?, ?)',
+      whereArgs: [CaptureKind.reward, CaptureKind.duplicate, CaptureKind.glyphResult, CaptureKind.ap],
+      orderBy: 'ts DESC, id DESC',
+      limit: 60,
+    );
+    for (final r in rows.reversed) {
+      final id = r['id'] as int;
+      final ts = r['ts'] as int;
+      switch (r['kind']) {
+        case CaptureKind.reward:
+          linker.restoreReward(
+            id,
+            ts,
+            bonus: r['bonus'] == 1,
+            portalName: r['portal_name'] as String?,
+            score: r['read_score'] as int? ?? 0,
+          );
+        case CaptureKind.duplicate:
+          final parent = r['parent_id'] as int?;
+          if (parent != null) linker.restoreDuplicate(parent, ts);
+        case CaptureKind.glyphResult:
+          linker.restoreGlyph(
+            id,
+            ts,
+            GlyphResult(
+              hackBonus: r['glyph_hack_bonus'] as int,
+              speedBonus: r['glyph_speed_bonus'] as int,
+              command: r['glyph_command'] as String?,
+            ),
+            linked: r['parent_id'] != null,
+          );
+        case CaptureKind.ap:
+          final ap = r['ap'] as int?;
+          if (ap != null) linker.restoreAp(ap, ts);
+      }
+    }
+    return linker;
   }
 
   static Map<int, int> _levelCounts(List<ParsedItem> items) {
@@ -520,96 +598,5 @@ class RewardRepository {
     } catch (_) {
       return null;
     }
-  }
-}
-
-class _PendingGlyph {
-  const _PendingGlyph(this.captureId, this.timestamp, this.result);
-  final int captureId;
-  final int timestamp;
-  final GlyphResult result;
-}
-
-/// Walks frames in time order: drops screens read on several frames, and
-/// links each glyph end screen to the bonus reward that follows it.
-class _Linker {
-  _Linker();
-
-  /// A screen with the same content within this delay is the same screen.
-  static const duplicateWindow = Duration(seconds: 20);
-
-  /// Delay between the glyph end screen ("Done") and the bonus popup.
-  static const glyphWindow = Duration(seconds: 90);
-
-  final _lastSeen = <String, int>{};
-  _PendingGlyph? _pendingGlyph;
-
-  /// Restores the state from the last stored frames, so a batch drained
-  /// later still detects duplicates and links glyph screens.
-  static Future<_Linker> resume(DatabaseExecutor db) async {
-    final linker = _Linker();
-    final rows = await db.query(
-      'captures',
-      columns: ['id', 'ts', 'kind', 'signature', 'glyph_hack_bonus', 'glyph_speed_bonus', 'glyph_command', 'ap', 'parent_id'],
-      where: 'kind IN (?, ?, ?)',
-      whereArgs: [CaptureKind.reward, CaptureKind.glyphResult, CaptureKind.ap],
-      orderBy: 'ts DESC, id DESC',
-      limit: 30,
-    );
-    for (final r in rows.reversed) {
-      final ts = r['ts'] as int;
-      switch (r['kind']) {
-        case CaptureKind.reward:
-          linker._lastSeen['reward:${r['signature']}'] = ts;
-          if (r['signature'].toString().startsWith('BONUS#')) linker._pendingGlyph = null;
-        case CaptureKind.glyphResult:
-          final result = GlyphResult(
-            hackBonus: r['glyph_hack_bonus'] as int,
-            speedBonus: r['glyph_speed_bonus'] as int,
-            command: r['glyph_command'] as String?,
-          );
-          linker._lastSeen['glyph:${_glyphKey(result)}'] = ts;
-          linker._pendingGlyph = r['parent_id'] == null ? _PendingGlyph(r['id'] as int, ts, result) : null;
-        case CaptureKind.ap:
-          linker._lastSeen['ap:${r['ap']}'] = ts;
-      }
-    }
-    return linker;
-  }
-
-  static String _glyphKey(GlyphResult g) => '${g.hackBonus}/${g.speedBonus}/${g.command}';
-
-  String classify(OcrCapture capture, ParseResult result) {
-    final glyph = result.glyph;
-    final String key;
-    final String kind;
-    if (glyph != null) {
-      key = 'glyph:${_glyphKey(glyph)}';
-      kind = CaptureKind.glyphResult;
-    } else if (result.isHack) {
-      key = 'reward:${result.signature}';
-      kind = CaptureKind.reward;
-    } else if (result.ap != null) {
-      key = 'ap:${result.ap}';
-      kind = CaptureKind.ap;
-    } else {
-      return capture.debug ? CaptureKind.raw : CaptureKind.ignored;
-    }
-    final ts = capture.timestamp;
-    final last = _lastSeen[key];
-    _lastSeen[key] = ts;
-    if (last != null && ts - last < duplicateWindow.inMilliseconds) return CaptureKind.duplicate;
-    return kind;
-  }
-
-  void setPendingGlyph(int captureId, int ts, GlyphResult result) =>
-      _pendingGlyph = _PendingGlyph(captureId, ts, result);
-
-  /// The glyph end screen seen shortly before the bonus reward at [ts].
-  _PendingGlyph? takePendingGlyph(int ts) {
-    final pending = _pendingGlyph;
-    _pendingGlyph = null;
-    if (pending == null || ts - pending.timestamp > glyphWindow.inMilliseconds) return null;
-    return pending;
   }
 }
