@@ -214,7 +214,7 @@ class CaptureService : Service() {
             PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_notify)
             .setContentTitle("Ingress Hack Stats")
             .setContentText("Observation des résultats de hack en cours")
             .setOngoing(true)
