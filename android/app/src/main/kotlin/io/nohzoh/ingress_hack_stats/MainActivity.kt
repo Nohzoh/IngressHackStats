@@ -25,6 +25,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        ServiceLog.installCrashHandler(this)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -41,6 +42,11 @@ class MainActivity : FlutterActivity() {
                     "isDebug" -> result.success(CaptureService.debugMode)
                     "drainPending" -> result.success(PendingStore.drain(this))
                     "diagnostics" -> result.success(Diagnostics.toMap())
+                    "serviceLog" -> result.success(ServiceLog.read(this))
+                    "clearServiceLog" -> {
+                        ServiceLog.clear(this)
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -68,6 +74,7 @@ class MainActivity : FlutterActivity() {
             return
         }
         pendingStartResult = result
+        ServiceLog.log(this, "app : bouton Démarrer")
         if (!requestMissingPermissions()) requestProjection()
     }
 
@@ -89,7 +96,12 @@ class MainActivity : FlutterActivity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         // Location and notifications are optional: capture works without them.
-        if (requestCode == REQ_PERMISSIONS && pendingStartResult != null) requestProjection()
+        if (requestCode != REQ_PERMISSIONS) return
+        val summary = permissions.indices.joinToString { i ->
+            "${permissions[i].substringAfterLast('.')}=${if (grantResults.getOrNull(i) == PackageManager.PERMISSION_GRANTED) "oui" else "non"}"
+        }
+        ServiceLog.log(this, "app : autorisations $summary")
+        if (pendingStartResult != null) requestProjection()
     }
 
     private fun requestProjection() {
@@ -103,17 +115,24 @@ class MainActivity : FlutterActivity() {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQ_PROJECTION) return
-        val result = pendingStartResult ?: return
+        val result = pendingStartResult
         pendingStartResult = null
         if (resultCode != Activity.RESULT_OK || data == null) {
-            result.success(false)
+            ServiceLog.log(this, "app : partage d'écran refusé (code $resultCode)")
+            result?.success(false)
             return
         }
+        ServiceLog.log(this, "app : partage d'écran accepté, lancement du service")
         val intent = Intent(this, CaptureService::class.java)
             .putExtra(CaptureService.EXTRA_RESULT_CODE, resultCode)
             .putExtra(CaptureService.EXTRA_DATA, data)
-        ContextCompat.startForegroundService(this, intent)
-        result.success(true)
+        try {
+            ContextCompat.startForegroundService(this, intent)
+            result?.success(true)
+        } catch (e: Exception) {
+            ServiceLog.error(this, "lancement du service", e)
+            result?.success(false)
+        }
     }
 
     private fun granted(permission: String) =

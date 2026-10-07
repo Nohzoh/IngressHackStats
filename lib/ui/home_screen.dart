@@ -26,6 +26,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   TransmuterFilter _transmuterFilter = TransmuterFilter.all;
   Map<String, Object?> _diag = const {};
   Map<String, int> _kinds = const {};
+  String _serviceLog = '';
   String? _error;
   Timer? _poll;
 
@@ -69,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final running = await _capture.isRunning();
       final diag = await _capture.diagnostics();
       final kinds = await repo.countByKind();
+      final serviceLog = await _capture.serviceLog();
       final stats = await repo.stats(
         glyph: _glyphFilter,
         portalLevel: _levelFilter,
@@ -80,6 +82,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _stats = stats;
         _diag = diag;
         _kinds = kinds;
+        _serviceLog = serviceLog;
         _error = null;
       });
     } catch (e) {
@@ -170,7 +173,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               color: _running ? Colors.redAccent : null,
             ),
             title: Text(_running ? 'Capture en cours' : 'Capture arrêtée'),
-            subtitle: const Text("Lance la capture, puis passe sur Ingress et hacke normalement."),
+            subtitle: const Text(
+              "Choisis « Écran entier » dans la fenêtre de partage, puis passe sur Ingress et hacke normalement.",
+            ),
             trailing: FilledButton(
               onPressed: _busy ? null : _toggleCapture,
               child: Text(_running ? 'Arrêter' : 'Démarrer'),
@@ -208,6 +213,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           Text('Erreurs OCR : ${n('ocrErrors')}', style: small),
           if (lastError.isNotEmpty) Text('Dernière erreur : $lastError', style: small),
           Text('En base : ${kinds.isEmpty ? 'rien' : kinds}', style: small),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: Text('Journal du service :', style: small)),
+              TextButton(
+                onPressed: () async {
+                  await _capture.clearServiceLog();
+                  _sync();
+                },
+                child: const Text('Effacer'),
+              ),
+            ],
+          ),
+          SelectableText(
+            _serviceLog.trim().isEmpty
+                ? '—'
+                : _serviceLog.trim().split('\n').reversed.take(25).join('\n'),
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+          ),
           const SizedBox(height: 8),
           Text('Dernier texte lu :', style: small),
           SelectableText(

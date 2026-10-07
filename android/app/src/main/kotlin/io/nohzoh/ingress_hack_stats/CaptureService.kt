@@ -121,15 +121,31 @@ class CaptureService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onCreate() {
+        super.onCreate()
+        ServiceLog.installCrashHandler(this)
+        ServiceLog.log(this, "service : créé")
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            ServiceLog.log(this, "service : arrêt demandé depuis la notification")
             stopSelf()
             return START_NOT_STICKY
         }
         if (isRunning) return START_NOT_STICKY
+        Diagnostics.reset()
+        ServiceLog.log(this, "service : démarrage (Android ${Build.VERSION.RELEASE}, API ${Build.VERSION.SDK_INT})")
 
-        // Must be in the foreground before getMediaProjection() (Android 14+).
-        startInForeground()
+        try {
+            // Must be in the foreground before getMediaProjection() (Android 14+).
+            startInForeground()
+        } catch (e: Exception) {
+            ServiceLog.error(this, "startForeground", e)
+            Diagnostics.lastError = "startForeground: ${e.message}"
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, 0) ?: 0
         val data: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -139,25 +155,36 @@ class CaptureService : Service() {
             intent?.getParcelableExtra(EXTRA_DATA)
         }
         if (data == null) {
-            Log.w(TAG, "No projection data, stopping")
+            ServiceLog.log(this, "ERREUR : pas de jeton de capture reçu (intent ${if (intent == null) "nul" else "sans données"})")
             stopSelf()
             return START_NOT_STICKY
         }
 
-        Diagnostics.reset()
         try {
             startProjection(resultCode, data)
-            startLocationUpdates()
-            isRunning = true
+            ServiceLog.log(this, "capture : écran virtuel créé (${width}x$height)")
         } catch (e: Exception) {
-            Log.e(TAG, "Unable to start capture", e)
+            ServiceLog.error(this, "démarrage de la capture", e)
             Diagnostics.lastError = "start: ${e.message}"
             stopSelf()
+            return START_NOT_STICKY
         }
+        try {
+            startLocationUpdates()
+        } catch (e: Exception) {
+            // GPS is a bonus: capture goes on without it.
+            ServiceLog.error(this, "localisation", e)
+        }
+        isRunning = true
+        ServiceLog.log(this, "service : capture en cours")
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
+        ServiceLog.log(
+            this,
+            "service : arrêté (images ${Diagnostics.frames}, OCR ${Diagnostics.ocrRuns}, gardées ${Diagnostics.kept})",
+        )
         isRunning = false
         locationManager?.removeUpdates(locationListener)
         virtualDisplay?.release()
@@ -189,9 +216,17 @@ class CaptureService : Service() {
             .addAction(0, "Arrêter", stopIntent)
             .build()
 
-        var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-        if (hasLocationPermission()) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-        startForeground(NOTIFICATION_ID, notification, types)
+        val projectionOnly = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        if (hasLocationPermission()) {
+            try {
+                startForeground(NOTIFICATION_ID, notification, projectionOnly or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+                return
+            } catch (e: Exception) {
+                // Android may refuse the location type: carry on without GPS.
+                ServiceLog.error(this, "startForeground avec localisation, nouvel essai sans", e)
+            }
+        }
+        startForeground(NOTIFICATION_ID, notification, projectionOnly)
     }
 
     private fun startProjection(resultCode: Int, data: Intent) {
@@ -212,7 +247,12 @@ class CaptureService : Service() {
         // Callback must be registered before createVirtualDisplay (Android 14+).
         mp.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
+                ServiceLog.log(this@CaptureService, "capture : partage d'écran arrêté par le système")
                 stopSelf()
+            }
+
+            override fun onCapturedContentVisibilityChanged(isVisible: Boolean) {
+                ServiceLog.log(this@CaptureService, "capture : contenu partagé ${if (isVisible) "visible" else "masqué"}")
             }
         }, handler)
         projection = mp
@@ -288,6 +328,7 @@ class CaptureService : Service() {
                 }
         } catch (e: Exception) {
             Log.w(TAG, "Frame processing failed", e)
+            if (Diagnostics.lastError.isEmpty()) ServiceLog.error(this, "traitement d'image", e)
             Diagnostics.lastError = "frame: ${e.message}"
             ocrBusy.set(false)
         } finally {

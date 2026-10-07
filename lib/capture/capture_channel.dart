@@ -23,6 +23,11 @@ class CaptureChannel {
   Future<Map<String, Object?>> diagnostics() async =>
       await _channel.invokeMapMethod<String, Object?>('diagnostics') ?? const {};
 
+  /// Persistent journal of the capture lifecycle (start, consent, errors…).
+  Future<String> serviceLog() async => await _channel.invokeMethod<String>('serviceLog') ?? '';
+
+  Future<void> clearServiceLog() => _channel.invokeMethod<void>('clearServiceLog');
+
   /// Captures stored by the service since the last call, as JSON strings.
   Future<List<String>> drainPending() async =>
       await _channel.invokeListMethod<String>('drainPending') ?? const [];

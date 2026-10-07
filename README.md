@@ -37,7 +37,7 @@ Garde le fichier `.jks` et ses mots de passe en lieu sûr, hors du repo : sans e
 
 ## Utilisation
 
-1. Ouvre l'app et appuie sur **Démarrer**. Accepte les autorisations (notifications, localisation), puis le partage d'écran. Sur Android 14+, choisis « Tout l'écran » ou l'app Ingress.
+1. Ouvre l'app et appuie sur **Démarrer**. Accepte les autorisations (notifications, localisation), puis le partage d'écran en choisissant **Écran entier**. Si tu choisis une seule app, Android l'ouvre aussitôt et la capture ne démarre qu'à ton retour dans Ingress Hack Stats.
 2. Passe sur Ingress et hacke normalement. Une notification indique que la capture tourne ; elle permet aussi de l'arrêter.
 3. Reviens dans l'app : les captures sont analysées et les statistiques s'affichent.
 
@@ -103,6 +103,10 @@ lib/
 Les captures brutes (texte et positions) sont conservées, ce qui permet de ré-analyser tout l'historique quand le parseur s'améliore.
 
 Un même popup lu sur plusieurs images n'est compté qu'une fois, grâce à deux filtres : côté natif (texte identique sous 10 s), puis côté Dart (même portail et même loot sous 20 s, marqué `duplicate`).
+
+## Dépannage
+
+La carte **Diagnostic** de l'écran principal montre les compteurs de la chaîne (images, OCR, texte lu, captures gardées) et un **journal du service** conservé même si l'app plante : consentement, démarrage, arrêt par le système, erreurs avec leur origine.
 
 ## Limites connues
 
