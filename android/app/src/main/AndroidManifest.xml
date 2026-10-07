@@ -37,6 +37,29 @@
             android:exported="false"
             android:foregroundServiceType="mediaProjection|location" />
 
+        <!-- Quick settings tile: start / stop the capture from the game. -->
+        <service
+            android:name=".CaptureTileService"
+            android:exported="true"
+            android:label="Capture hacks"
+            android:icon="@drawable/ic_stat_notify"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="true" />
+        </service>
+
+        <!-- Invisible: shows the screen-capture consent over the game. -->
+        <activity
+            android:name=".ProjectionRequestActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

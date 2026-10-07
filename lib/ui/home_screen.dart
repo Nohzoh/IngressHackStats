@@ -23,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _running = false;
   bool _debug = false;
   int _ocrInterval = 250;
+  bool _canAddTile = false;
   bool _busy = false;
   RewardFilter _filter = const RewardFilter();
   Map<String, Object?> _diag = const {};
@@ -55,6 +56,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _repo = await RewardRepository.open();
       _debug = await _capture.isDebug();
       _ocrInterval = await _capture.ocrInterval();
+      _canAddTile = await _capture.canAddTile();
       await _sync();
       _poll = Timer.periodic(const Duration(seconds: 5), (_) => _sync());
     } catch (e) {
@@ -107,6 +109,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _addTile() async {
+    final result = await _capture.addTile();
+    if (!mounted) return;
+    final message = switch (result) {
+      'added' => 'Tuile ajoutée aux réglages rapides',
+      'already' => 'La tuile est déjà dans les réglages rapides',
+      'refused' => 'Tuile non ajoutée',
+      _ => 'Impossible d’ajouter la tuile : ajoute « Capture hacks » à la main en modifiant les réglages rapides',
+    };
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _setOcrInterval(int ms) async {
@@ -193,6 +207,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               onPressed: _busy ? null : _toggleCapture,
               child: Text(_running ? 'Arrêter' : 'Démarrer'),
             ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.dashboard_customize_outlined),
+            title: const Text('Tuile des réglages rapides'),
+            subtitle: const Text('Démarre ou arrête la capture sans quitter le jeu'),
+            trailing: _canAddTile
+                ? TextButton(onPressed: _addTile, child: const Text('Ajouter'))
+                : null,
           ),
           ListTile(
             title: const Text('Fréquence d’analyse'),

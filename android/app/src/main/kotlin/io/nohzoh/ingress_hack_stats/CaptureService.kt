@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
@@ -66,6 +67,21 @@ class CaptureService : Service() {
         private val QUANTITY_TOKEN = Regex("(^|\\s)[x×]\\s?\\d{1,3}(\\s|$)", RegexOption.MULTILINE)
 
         private val AP_GAIN = Regex("\\+\\s?\\d[\\d,.]*\\s?ap(\\W|$)")
+
+        /** Starts the capture with the screen-capture consent result. */
+        fun start(context: Context, resultCode: Int, data: Intent, from: String): Boolean {
+            ServiceLog.log(context, "$from : partage d'écran accepté, lancement du service")
+            val intent = Intent(context, CaptureService::class.java)
+                .putExtra(EXTRA_RESULT_CODE, resultCode)
+                .putExtra(EXTRA_DATA, data)
+            return try {
+                ContextCompat.startForegroundService(context, intent)
+                true
+            } catch (e: Exception) {
+                ServiceLog.error(context, "lancement du service", e)
+                false
+            }
+        }
 
         @Volatile var isRunning = false
             private set
@@ -181,6 +197,7 @@ class CaptureService : Service() {
             ServiceLog.error(this, "localisation", e)
         }
         isRunning = true
+        CaptureTileService.requestUpdate(this)
         ServiceLog.log(this, "service : capture en cours")
         return START_NOT_STICKY
     }
@@ -191,6 +208,7 @@ class CaptureService : Service() {
             "service : arrêté (images ${Diagnostics.frames}, OCR ${Diagnostics.ocrRuns}, gardées ${Diagnostics.kept})",
         )
         isRunning = false
+        CaptureTileService.requestUpdate(this)
         locationManager?.removeUpdates(locationListener)
         virtualDisplay?.release()
         imageReader?.close()

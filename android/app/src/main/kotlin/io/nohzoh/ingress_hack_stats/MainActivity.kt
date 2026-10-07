@@ -2,6 +2,9 @@ package io.nohzoh.ingress_hack_stats
 
 import android.Manifest
 import android.app.Activity
+import android.app.StatusBarManager
+import android.content.ComponentName
+import android.graphics.drawable.Icon
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
@@ -36,6 +39,8 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "isRunning" -> result.success(CaptureService.isRunning)
+                    "canAddTile" -> result.success(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                    "addTile" -> requestAddTile(result)
                     "setDebug" -> {
                         CaptureService.debugMode = call.argument<Boolean>("enabled") == true
                         result.success(null)
@@ -131,16 +136,30 @@ class MainActivity : FlutterActivity() {
             result?.success(false)
             return
         }
-        ServiceLog.log(this, "app : partage d'écran accepté, lancement du service")
-        val intent = Intent(this, CaptureService::class.java)
-            .putExtra(CaptureService.EXTRA_RESULT_CODE, resultCode)
-            .putExtra(CaptureService.EXTRA_DATA, data)
-        try {
-            ContextCompat.startForegroundService(this, intent)
-            result?.success(true)
-        } catch (e: Exception) {
-            ServiceLog.error(this, "lancement du service", e)
-            result?.success(false)
+        result?.success(CaptureService.start(this, resultCode, data, from = "app"))
+    }
+
+    /** Android 13+: asks the user to add the capture tile to quick settings. */
+    private fun requestAddTile(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            result.success("unsupported")
+            return
+        }
+        val manager = getSystemService(StatusBarManager::class.java)
+        manager.requestAddTileService(
+            ComponentName(this, CaptureTileService::class.java),
+            "Capture hacks",
+            Icon.createWithResource(this, R.drawable.ic_stat_notify),
+            mainExecutor,
+        ) { code ->
+            result.success(
+                when (code) {
+                    StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED -> "added"
+                    StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED -> "already"
+                    StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_NOT_ADDED -> "refused"
+                    else -> "error"
+                },
+            )
         }
     }
 

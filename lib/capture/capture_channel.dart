@@ -19,6 +19,12 @@ class CaptureChannel {
   Future<void> setDebug(bool enabled) =>
       _channel.invokeMethod<void>('setDebug', {'enabled': enabled});
 
+  /// Android 13+ can offer to add the quick settings tile from the app.
+  Future<bool> canAddTile() async => await _channel.invokeMethod<bool>('canAddTile') ?? false;
+
+  /// Asks to add the tile; returns "added", "already", "refused" or "error".
+  Future<String> addTile() async => await _channel.invokeMethod<String>('addTile') ?? 'error';
+
   /// Minimum delay between two OCR passes, in milliseconds.
   Future<int> ocrInterval() async => await _channel.invokeMethod<int>('getOcrInterval') ?? 250;
 

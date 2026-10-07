@@ -41,6 +41,8 @@ Garde le fichier `.jks` et ses mots de passe en lieu sûr, hors du repo : sans e
 2. Passe sur Ingress et hacke normalement. Une notification indique que la capture tourne ; elle permet aussi de l'arrêter.
 3. Reviens dans l'app : les captures sont analysées et les statistiques s'affichent.
 
+**Sans quitter le jeu** : la tuile « Capture hacks » des réglages rapides (le volet déroulé du haut de l'écran) démarre ou arrête la capture. Sur Android 13+, le bouton « Ajouter » de l'app la place directement ; sinon, l'ajouter en modifiant les réglages rapides. Android demande quand même son accord de partage d'écran à chaque démarrage : la fenêtre s'ouvre par-dessus le jeu puis se referme.
+
 L'OCR est mis en pause tant que l'app elle-même est à l'écran, pour ne pas lire ses propres statistiques.
 
 ## Format du popup de hack
