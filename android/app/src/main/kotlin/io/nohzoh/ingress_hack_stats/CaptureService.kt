@@ -58,6 +58,17 @@ class CaptureService : Service() {
         private const val TAG = "CaptureService"
         private const val CHANNEL_ID = "capture"
         private const val NOTIFICATION_ID = 1
+        private const val RELAUNCH_CHANNEL_ID = "relaunch"
+        private const val RELAUNCH_NOTIFICATION_ID = 2
+
+        /**
+         * Only this horizontal band of the screen is read: reward popups,
+         * the glyph end screen and the AP gain all sit in it. A smaller image
+         * makes OCR 2 to 3 times faster. The whole screen is read in
+         * calibration mode.
+         */
+        private const val BAND_TOP = 0.20
+        private const val BAND_BOTTOM = 0.65
 
         const val DEFAULT_OCR_INTERVAL_MS = 250L
 
@@ -123,6 +134,7 @@ class CaptureService : Service() {
     private var locationManager: LocationManager? = null
 
     private val ocrBusy = AtomicBoolean(false)
+    @Volatile private var destroying = false
     private var lastOcrAt = 0L
     @Volatile private var lastStoredKey = ""
     @Volatile private var lastStoredAt = 0L
@@ -199,10 +211,12 @@ class CaptureService : Service() {
         isRunning = true
         CaptureTileService.requestUpdate(this)
         ServiceLog.log(this, "service : capture en cours")
+        getSystemService(NotificationManager::class.java).cancel(RELAUNCH_NOTIFICATION_ID)
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
+        destroying = true
         ServiceLog.log(
             this,
             "service : arrêté (images ${Diagnostics.frames}, OCR ${Diagnostics.ocrRuns}, gardées ${Diagnostics.kept})",
@@ -220,6 +234,31 @@ class CaptureService : Service() {
     }
 
     // ---------------------------------------------------------------- setup
+
+    /** Capture cut by the system (screen locked…): one tap to start again. */
+    private fun showRelaunchNotification() {
+        try {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(
+                NotificationChannel(RELAUNCH_CHANNEL_ID, "Capture interrompue", NotificationManager.IMPORTANCE_DEFAULT)
+            )
+            val relaunch = PendingIntent.getActivity(
+                this, 1,
+                Intent(this, ProjectionRequestActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val notification = NotificationCompat.Builder(this, RELAUNCH_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_stat_notify)
+                .setContentTitle("Capture interrompue")
+                .setContentText("Le partage d'écran a été coupé. Toucher pour relancer.")
+                .setContentIntent(relaunch)
+                .setAutoCancel(true)
+                .build()
+            manager.notify(RELAUNCH_NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            ServiceLog.error(this, "notification de relance", e)
+        }
+    }
 
     private fun startInForeground() {
         val manager = getSystemService(NotificationManager::class.java)
@@ -270,7 +309,10 @@ class CaptureService : Service() {
         // Callback must be registered before createVirtualDisplay (Android 14+).
         mp.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
+                // Also called when we stop the projection ourselves.
+                if (destroying) return
                 ServiceLog.log(this@CaptureService, "capture : partage d'écran arrêté par le système")
+                showRelaunchNotification()
                 stopSelf()
             }
 
@@ -330,7 +372,14 @@ class CaptureService : Service() {
             if (!ocrBusy.compareAndSet(false, true)) return
             lastOcrAt = now
             Diagnostics.ocrRuns++
-            val bitmap = image.toBitmap()
+            val full = image.toBitmap()
+            val bandTop = if (debugMode) 0 else (full.height * BAND_TOP).toInt()
+            val bandBottom = if (debugMode) full.height else (full.height * BAND_BOTTOM).toInt()
+            val bitmap = if (bandTop == 0 && bandBottom == full.height) {
+                full
+            } else {
+                Bitmap.createBitmap(full, 0, bandTop, full.width, bandBottom - bandTop).also { full.recycle() }
+            }
             val capturedAt = System.currentTimeMillis()
             val ocrStart = SystemClock.elapsedRealtime()
             val client = recognizer
@@ -346,7 +395,7 @@ class CaptureService : Service() {
                     try {
                         Diagnostics.ocrTotalMs += SystemClock.elapsedRealtime() - ocrStart
                         if (task.isSuccessful) {
-                            handleText(task.result, capturedAt, bitmap)
+                            handleText(task.result, capturedAt, bitmap, bandTop)
                         } else {
                             Log.w(TAG, "OCR failed", task.exception)
                             Diagnostics.ocrErrors++
@@ -382,11 +431,12 @@ class CaptureService : Service() {
         return cropped
     }
 
-    private fun handleText(text: Text, capturedAt: Long, bitmap: Bitmap) {
+    /** [yOffset]: top of the analysed band, to store screen coordinates. */
+    private fun handleText(text: Text, capturedAt: Long, bitmap: Bitmap, yOffset: Int) {
         val ocrLines = text.textBlocks.flatMap { it.lines }.filter { it.boundingBox != null }
         val lines = ocrLines.map { line ->
             val box = line.boundingBox!!
-            OcrLine(line.text, box.left, box.top, box.height())
+            OcrLine(line.text, box.left, box.top + yOffset, box.height())
         }
         if (lines.isEmpty()) return
 

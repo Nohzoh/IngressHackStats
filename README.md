@@ -131,6 +131,8 @@ La carte **Diagnostic** de l'écran principal montre les compteurs de la chaîne
 
 ## Limites connues
 
+- Zone analysée : seule la bande entre 20 % et 65 % de la hauteur de l'écran passe à l'OCR (popups, fin de glyph, gain d'AP), ce qui le rend 2 à 3 fois plus rapide. En mode calibration, tout l'écran est lu.
+- Verrouiller l'écran coupe le partage d'écran (Android 15+) : une notification « Capture interrompue » permet de relancer d'un toucher.
 - Batterie : OCR plein écran jusqu'à 4 fois par seconde (réglable : ¼, ½ ou 1 s), plus le GPS. Une seule analyse tourne à la fois, donc la cadence réelle est aussi plafonnée par la vitesse de l'OCR (visible dans le diagnostic). Piste : limiter l'OCR à la zone du popup.
 - Biais de capture : les popups fermés très vite sont plus souvent manqués. Si tu restes plus longtemps sur un loot intéressant, il a plus de chances d'être capturé : c'est pour réduire ce biais que la fréquence d'analyse est élevée.
 - Les CGU de Niantic interdisent largement les « logiciels tiers ». Cette app reste passive (lecture d'écran), mais mieux vaut la garder pour un usage personnel ou la présenter comme un outil de prise de notes.

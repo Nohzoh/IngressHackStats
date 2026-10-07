@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../capture/capture_channel.dart';
 import '../data/reward_repository.dart';
@@ -276,6 +277,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           Row(
             children: [
               Expanded(child: Text('Journal du service :', style: small)),
+              TextButton.icon(
+                onPressed: _copyDiagnostics,
+                icon: const Icon(Icons.copy, size: 18),
+                label: const Text('Copier'),
+              ),
               TextButton(
                 onPressed: () async {
                   await _capture.clearServiceLog();
@@ -299,6 +305,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ],
       ),
+    );
+  }
+
+  /// Counters and the whole journal, to paste in a message.
+  Future<void> _copyDiagnostics() async {
+    int n(String key) => (_diag[key] as num?)?.toInt() ?? 0;
+    final kinds = _kinds.entries.map((e) => '${e.key} ${e.value}').join(' · ');
+    final text = [
+      'Ingress Hack Stats — diagnostic',
+      'Capture : ${_running ? 'en cours' : 'arrêtée'}',
+      'Images ${n('frames')} · OCR ${n('ocrRuns')} · avec texte ${n('textFrames')} · gardées ${n('kept')}',
+      'Erreurs OCR : ${n('ocrErrors')}',
+      _ocrSpeed(n),
+      'En base : ${kinds.isEmpty ? 'rien' : kinds}',
+      '',
+      'Journal du service :',
+      _serviceLog.trim().isEmpty ? '—' : _serviceLog.trim(),
+    ].join('\n');
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Diagnostic copié dans le presse-papiers')),
     );
   }
 
