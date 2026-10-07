@@ -340,16 +340,25 @@ class CaptureService : Service() {
                 return
             }
             client.process(InputImage.fromBitmap(bitmap, 0))
-                .addOnSuccessListener(ocrExecutor) { text -> handleText(text, capturedAt) }
-                .addOnFailureListener(ocrExecutor) { e ->
-                    Log.w(TAG, "OCR failed", e)
-                    Diagnostics.ocrErrors++
-                    Diagnostics.lastError = "ocr: ${e.message}"
-                }
-                .addOnCompleteListener(ocrExecutor) {
-                    Diagnostics.ocrTotalMs += SystemClock.elapsedRealtime() - ocrStart
-                    bitmap.recycle()
-                    ocrBusy.set(false)
+                .addOnCompleteListener(ocrExecutor) { task ->
+                    // One listener, so the bitmap is still there for the
+                    // rarity marks and recycled only afterwards.
+                    try {
+                        Diagnostics.ocrTotalMs += SystemClock.elapsedRealtime() - ocrStart
+                        if (task.isSuccessful) {
+                            handleText(task.result, capturedAt, bitmap)
+                        } else {
+                            Log.w(TAG, "OCR failed", task.exception)
+                            Diagnostics.ocrErrors++
+                            Diagnostics.lastError = "ocr: ${task.exception?.message}"
+                        }
+                    } catch (e: Exception) {
+                        Diagnostics.lastError = "texte: ${e.message}"
+                        ServiceLog.error(this, "analyse du texte", e)
+                    } finally {
+                        bitmap.recycle()
+                        ocrBusy.set(false)
+                    }
                 }
         } catch (e: Exception) {
             Log.w(TAG, "Frame processing failed", e)
@@ -373,9 +382,10 @@ class CaptureService : Service() {
         return cropped
     }
 
-    private fun handleText(text: Text, capturedAt: Long) {
-        val lines = text.textBlocks.flatMap { it.lines }.mapNotNull { line ->
-            val box = line.boundingBox ?: return@mapNotNull null
+    private fun handleText(text: Text, capturedAt: Long, bitmap: Bitmap) {
+        val ocrLines = text.textBlocks.flatMap { it.lines }.filter { it.boundingBox != null }
+        val lines = ocrLines.map { line ->
+            val box = line.boundingBox!!
             OcrLine(line.text, box.left, box.top, box.height())
         }
         if (lines.isEmpty()) return
@@ -397,10 +407,10 @@ class CaptureService : Service() {
             .put("w", width)
             .put("h", height)
         val array = JSONArray()
-        for (line in lines) {
+        for ((index, line) in lines.withIndex()) {
             array.put(
                 JSONObject()
-                    .put("t", line.text)
+                    .put("t", RarityMarks.markedText(ocrLines[index], bitmap))
                     .put("x", line.x)
                     .put("y", line.y)
                     .put("h", line.h)

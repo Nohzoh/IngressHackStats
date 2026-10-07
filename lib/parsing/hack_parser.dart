@@ -159,6 +159,10 @@ class HackParser {
   /// or reads it as "i", "|" or "!": "8 x8 XMP Burster" is still level 8.
   static final _levelToken = RegExp(r'^[li|!]?[1-8]$');
   static const _rarityTokens = {'common', 'rare', 'vr'};
+
+  /// Rarity bars counted on the image by the capture service, inserted
+  /// before the quantity: "§r<lit bars>:<hue>" (see RarityMarks.kt).
+  static final _markToken = RegExp(r'^§r([1-3])(?::(\d{1,3}))?$');
   static final _itoEn = RegExp(r'it[o0]\s?en\s*\(?\s*([+-])');
   static final _percent = RegExp(r'(\d{1,4})\s?%');
   static final _ap = RegExp(r'\+\s?(\d{1,3}(?:[,.]\d{3})*)\s?ap($|[^a-z])');
@@ -254,7 +258,10 @@ class HackParser {
     return null;
   }
 
-  ParsedItem? _parseSegment(String segment, {required bool bonus}) {
+  ParsedItem? _parseSegment(String raw, {required bool bonus}) {
+    final allTokens = raw.split(' ');
+    final marks = [for (final t in allTokens) if (_markToken.hasMatch(t)) t];
+    final segment = [for (final t in allTokens) if (!_markToken.hasMatch(t)) t].join(' ');
     final type = _matcher.match(segment);
     if (type == null) return null;
     final withoutLevel = segment.replaceAll(_level, ' ');
@@ -265,7 +272,7 @@ class HackParser {
     return ParsedItem(
       item: type.name,
       level: type.leveled ? leadingLevel ?? parseLevel(segment) : null,
-      rarity: (type.hasRarity ? parseRarity(segment) : null) ?? type.defaultRarity,
+      rarity: (type.hasRarity ? parseRarity(segment) ?? rarityFromMarks(marks) : null) ?? type.defaultRarity,
       quantity: parseQuantity(withoutLevel) ?? 1,
       bonus: bonus,
     );
@@ -304,11 +311,19 @@ class HackParser {
     for (var i = 0; i < tokens.length; i++) {
       if (!_quantityToken.hasMatch(tokens[i])) continue;
       var start = i;
-      if (start > 0 && _levelToken.hasMatch(tokens[start - 1])) {
-        start--;
-      } else if (start > 0 && _rarityTokens.contains(tokens[start - 1])) {
-        start--;
-        if (tokens[start] == 'rare' && start > 0 && tokens[start - 1] == 'very') start--;
+      // Up to two prefixes: a rarity mark and a level ("l1 §r2:55 x1"),
+      // or a written rarity ("very rare x1").
+      for (var k = 0; k < 2 && start > 0; k++) {
+        final prev = tokens[start - 1];
+        if (_markToken.hasMatch(prev) || _levelToken.hasMatch(prev)) {
+          start--;
+        } else if (_rarityTokens.contains(prev)) {
+          start--;
+          if (prev == 'rare' && start > 0 && tokens[start - 1] == 'very') start--;
+          break;
+        } else {
+          break;
+        }
       }
       if (starts.isNotEmpty && start <= starts.last) start = i;
       starts.add(start);
@@ -322,6 +337,22 @@ class HackParser {
   static int? parseLevel(String text) {
     final m = _level.firstMatch(text);
     return m == null ? null : int.parse(m.group(2)!);
+  }
+
+  /// Rarity from the bars counted on the image: 1 lit bar = common,
+  /// 2 = rare, 3 = very rare.
+  static String? rarityFromMarks(List<String> marks) {
+    for (final m in marks) {
+      final match = _markToken.firstMatch(m);
+      if (match == null) continue;
+      return switch (match.group(1)) {
+        '1' => Rarity.common,
+        '2' => Rarity.rare,
+        '3' => Rarity.veryRare,
+        _ => null,
+      };
+    }
+    return null;
   }
 
   static String? parseRarity(String text) {

@@ -149,6 +149,37 @@ void main() {
     ]);
   });
 
+  test('rarity from the bars counted on the image', () {
+    // Real popup: "/// x1 Portal Shield" (1 lit bar of 3, green) next to
+    // "L1 x1 XMP Burster" (yellow level text, which also gives a mark).
+    final result = parser.parse(const [
+      OcrLine('Monolithe de basalte', x: 265, y: 657, h: 40),
+      OcrLine('§r1:160 x1 Portal Shield', x: 118, y: 735, h: 38),
+      OcrLine('L1 §r2:55 x1 XMP Burster', x: 528, y: 735, h: 38),
+      OcrLine('L1 §r2:55 x1 Resonator', x: 118, y: 805, h: 38),
+    ], screenHeight: screenHeight);
+
+    expect(result.portalName, 'Monolithe de basalte');
+    expect(result.items.map((i) => i.toString()), [
+      'Portal Shield (Commun)',
+      'XMP Burster L1',
+      'Resonator L1',
+    ]);
+  });
+
+  test('two and three lit bars are rare and very rare', () {
+    final result = parser.parse(const [
+      OcrLine('§r2:270 x1 Heat Sink', x: 100, y: 100, h: 30),
+      OcrLine('§r3:300 x2 Multi-hack', x: 500, y: 100, h: 30),
+      OcrLine('8 §r2:50 x8 XMP Burster', x: 100, y: 160, h: 30),
+    ]);
+    expect(result.items.map((i) => i.toString()), [
+      'Heat Sink (Rare)',
+      'Multi-hack (Très rare) ×2',
+      'XMP Burster L8 ×8',
+    ]);
+  });
+
   test('"×" is read like "x"', () {
     final item = parser.parse(const [OcrLine('L8 ×3 Ultra Strike')]).items.single;
     expect(item.level, 8);

@@ -80,6 +80,8 @@ La qualité des glyphes vient de l'écran de fin de séquence (« HACKING BONUS 
 - hacking à 0 % : ratée ;
 - écran non capté : inconnue.
 
+**Rareté des mods** (bouclier, heat sink, multi-hack…) : elle n'est pas écrite mais dessinée, avec trois barres obliques à gauche de la quantité, dont 1 (commun), 2 (rare) ou 3 (très rare) sont colorées. Le service lit les pixels de cette zone (repérée grâce à la position du mot « x1 » donnée par l'OCR) et compte les barres vives. Le résultat est inséré dans le texte sous la forme `§r<barres>:<teinte>` (ex. `§r1:160 x1 Portal Shield`), visible dans l'écran Captures pour vérifier le comptage et la couleur. Les captures enregistrées avant cette version n'ont pas cette information.
+
 Seul le texte de la forme `[niveau|rareté] x<quantité> <nom>` est retenu, ce qui écarte le COMM et les alertes affichés autour.
 
 Points encore à vérifier sur de vrais hacks : le format des items sans niveau (mods, clés, capsules) et la lecture de la rareté.
