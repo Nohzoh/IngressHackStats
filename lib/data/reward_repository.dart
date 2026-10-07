@@ -7,6 +7,8 @@ import '../models/ocr_capture.dart';
 import '../parsing/hack_parser.dart';
 import '../parsing/portal_level.dart';
 import 'popup_linker.dart';
+import '../parsing/item_catalog.dart';
+import '../stats/item_detail.dart';
 import '../stats/reward_stats.dart';
 
 /// What a stored frame turned out to be.
@@ -469,30 +471,7 @@ class RewardRepository {
 
   /// Number of matching rewards and their item counts. [bonus]: null for both.
   Future<(int, List<ItemCount>)> _counts(RewardFilter filter, {required bool? bonus}) async {
-    final conditions = ["c.kind = '${CaptureKind.reward}'"];
-    final args = <Object>[];
-    if (bonus != null) conditions.add('c.bonus = ${bonus ? 1 : 0}');
-    switch (filter.transmuter) {
-      case TransmuterFilter.all:
-        break;
-      case TransmuterFilter.plus:
-        conditions.add("c.transmuter = '${Transmuter.plus}'");
-      case TransmuterFilter.minus:
-        conditions.add("c.transmuter = '${Transmuter.minus}'");
-      case TransmuterFilter.none:
-        conditions.add('c.transmuter IS NULL');
-    }
-    if (filter.portalLevel != null) {
-      conditions.add('c.portal_level = ?');
-      args.add(filter.portalLevel!);
-    }
-    final glyphStatus = filter.glyph.status;
-    if (glyphStatus != null && bonus != false) {
-      // Regular rewards have no glyph status: keep them when mixing types.
-      conditions.add(bonus == true ? 'c.glyph_status = ?' : '(c.bonus = 0 OR c.glyph_status = ?)');
-      args.add(glyphStatus);
-    }
-    final where = conditions.join(' AND ');
+    final (where, args) = _where(filter, bonus: bonus);
 
     final rewards = Sqflite.firstIntValue(
           await _db.rawQuery('SELECT COUNT(*) FROM captures c WHERE $where', args),
@@ -519,6 +498,91 @@ class RewardRepository {
           ),
       ],
     );
+  }
+
+  /// SQL condition on the rewards (alias `c`) matching [filter].
+  /// [bonus]: only regular (false) or bonus (true) rewards, null for both.
+  /// [byPortalLevel]: false to ignore the stored portal level filter.
+  static (String, List<Object>) _where(RewardFilter filter, {required bool? bonus, bool byPortalLevel = true}) {
+    final conditions = ["c.kind = '${CaptureKind.reward}'"];
+    final args = <Object>[];
+    if (bonus != null) conditions.add('c.bonus = ${bonus ? 1 : 0}');
+    switch (filter.transmuter) {
+      case TransmuterFilter.all:
+        break;
+      case TransmuterFilter.plus:
+        conditions.add("c.transmuter = '${Transmuter.plus}'");
+      case TransmuterFilter.minus:
+        conditions.add("c.transmuter = '${Transmuter.minus}'");
+      case TransmuterFilter.none:
+        conditions.add('c.transmuter IS NULL');
+    }
+    if (byPortalLevel && filter.portalLevel != null) {
+      conditions.add('c.portal_level = ?');
+      args.add(filter.portalLevel!);
+    }
+    final glyphStatus = filter.glyph.status;
+    if (glyphStatus != null && bonus != false) {
+      // Regular rewards have no glyph status: keep them when mixing types.
+      conditions.add(bonus == true ? 'c.glyph_status = ?' : '(c.bonus = 0 OR c.glyph_status = ?)');
+      args.add(glyphStatus);
+    }
+    return (conditions.join(' AND '), args);
+  }
+
+  // ------------------------------------------------------------ item detail
+
+  /// Grid of one item by portal level, item variant and reward type. The
+  /// portal level of each reward is estimated without the studied item.
+  /// Only the Ito En and glyph quality parts of [filter] apply.
+  Future<ItemDetail> itemDetail(String item, RewardFilter filter) async {
+    final (where, args) = _where(filter, bonus: null, byPortalLevel: false);
+    final rewards = await _db.rawQuery('SELECT c.id, c.bonus FROM captures c WHERE $where', args);
+    final others = await _db.rawQuery('''
+      SELECT i.capture_id, i.level, SUM(i.quantity) AS q
+      FROM reward_items i JOIN captures c ON c.id = i.capture_id
+      WHERE $where AND i.item <> ? AND i.level IS NOT NULL
+      GROUP BY i.capture_id, i.level''', [...args, item]);
+    final own = await _db.rawQuery('''
+      SELECT i.capture_id, i.level, i.rarity, SUM(i.quantity) AS q
+      FROM reward_items i JOIN captures c ON c.id = i.capture_id
+      WHERE $where AND i.item = ?
+      GROUP BY i.capture_id, i.level, i.rarity''', [...args, item]);
+
+    final otherLevels = <int, Map<int, int>>{};
+    for (final r in others) {
+      otherLevels.putIfAbsent(r['capture_id'] as int, () => {})[r['level'] as int] = (r['q'] as num).toInt();
+    }
+    final quantities = <int, Map<String, int>>{};
+    for (final r in own) {
+      final key = ItemDetail.variantKey(level: r['level'] as int?, rarity: r['rarity'] as String?);
+      final byVariant = quantities.putIfAbsent(r['capture_id'] as int, () => {});
+      byVariant[key] = (byVariant[key] ?? 0) + (r['q'] as num).toInt();
+    }
+    return ItemDetail.compute(item, [
+      for (final r in rewards)
+        RewardObservation(
+          id: r['id'] as int,
+          bonus: r['bonus'] == 1,
+          otherLevels: otherLevels[r['id'] as int] ?? const {},
+          itemQuantities: quantities[r['id'] as int] ?? const {},
+        ),
+    ]);
+  }
+
+  /// Items of the catalog plus any other item seen, with the number of
+  /// rewards that contained each one, most frequent first.
+  Future<List<(String, int)>> knownItems() async {
+    final rows = await _db.rawQuery('''
+      SELECT i.item, COUNT(DISTINCT i.capture_id) AS n
+      FROM reward_items i JOIN captures c ON c.id = i.capture_id
+      WHERE c.kind = '${CaptureKind.reward}'
+      GROUP BY i.item''');
+    final counts = {for (final r in rows) r['item'] as String: (r['n'] as num).toInt()};
+    final names = {for (final t in kItemCatalog) t.name, ...counts.keys};
+    final list = [for (final n in names) (n, counts[n] ?? 0)];
+    list.sort((a, b) => b.$2 != a.$2 ? b.$2.compareTo(a.$2) : a.$1.compareTo(b.$1));
+    return list;
   }
 
   // ------------------------------------------------------------- captures

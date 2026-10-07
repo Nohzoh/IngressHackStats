@@ -68,6 +68,8 @@ Statistiques par item, pour le type de récompense choisi :
 
 La vue **Hack + glyph** est calculée : ce qu'un joueur reçoit en tout sur un glyph hack (une récompense normale + une bonus), en supposant les deux tirages indépendants. Chance d'avoir l'item : 1 − (1 − p_normale)(1 − p_bonus).
 
+**Fiche d'un objet** (en touchant une ligne des stats, ou depuis le catalogue « Objets ») : une grille avec le niveau du portail en lignes et, en colonnes, le niveau de l'objet (ou sa rareté) × type de récompense (Normale, Bonus, Hack + glyph). Colonnes masquables, défilement horizontal. Chaque case affiche « x / réc. » si l'objet sort au moins une fois sur deux, sinon « 1/N » (une récompense sur N en moyenne) ; grisée sous 30 récompenses. Ici, le niveau du portail est estimé **sans l'objet étudié** (leave-one-out), pour éviter qu'un « XMP L8 » ne classe lui-même sa récompense en P8.
+
 Le niveau du portail n'est pas affiché : il est estimé, pour chaque récompense, comme le niveau le plus fréquent parmi ses items (pondéré par la quantité), avec un tirage déterministe en cas d'égalité. Attention au biais : filtrer sur « P5 » sélectionne les récompenses où le L5 domine, donc la répartition des niveaux d'items sous ce filtre est biaisée par construction. Le filtre reste fiable pour les items sans niveau (mods, clés…).
 
 La qualité des glyphes vient de l'écran de fin de séquence (« HACKING BONUS / SPEED BONUS », avec la commande éventuelle, ex. MORE), rattaché à la récompense bonus qui suit (moins de 90 s) :

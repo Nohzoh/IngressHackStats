@@ -6,6 +6,8 @@ import '../capture/capture_channel.dart';
 import '../data/reward_repository.dart';
 import '../stats/reward_stats.dart';
 import 'captures_screen.dart';
+import 'catalog_screen.dart';
+import 'item_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -124,6 +126,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       appBar: AppBar(
         title: const Text('Ingress Hack Stats'),
         actions: [
+          IconButton(
+            tooltip: 'Objets',
+            icon: const Icon(Icons.inventory_2_outlined),
+            onPressed: repo == null
+                ? null
+                : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(builder: (_) => CatalogScreen(repository: repo)),
+                    ),
+          ),
           IconButton(
             tooltip: 'Captures',
             icon: const Icon(Icons.list_alt),
@@ -430,6 +441,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       for (final s in stats.items)
         ListTile(
           dense: true,
+          onTap: _repo == null
+              ? null
+              : () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ItemDetailScreen(repository: _repo!, item: s.item, initialFilter: _filter),
+                    ),
+                  ),
           title: Text(s.label),
           subtitle: Text([
             if (s.share != null) 'part ${pct(s.share!)}',
