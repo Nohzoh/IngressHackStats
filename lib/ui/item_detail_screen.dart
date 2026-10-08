@@ -179,8 +179,9 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
         ],
       );
 
-  /// An item read without level nor rarity has nothing to split on.
-  static bool _showVariants(ItemDetail d) => !(d.variants.isEmpty || (d.variants.length == 1 && d.variants.single == ''));
+  /// A single variant (always rare, never a level…) gives nothing to split
+  /// on: its columns would only repeat « Tous ».
+  static bool _showVariants(ItemDetail d) => d.variants.length > 1;
 
   // ----------------------------------------------------------------- grid
 
