@@ -37,11 +37,16 @@ Garde le fichier `.jks` et ses mots de passe en lieu sûr, hors du repo : sans e
 
 ## Utilisation
 
-1. Ouvre l'app et appuie sur **Démarrer**. Accepte les autorisations (notifications, localisation), puis le partage d'écran en choisissant **Écran entier**. Si tu choisis une seule app, Android l'ouvre aussitôt et la capture ne démarre qu'à ton retour dans Ingress Hack Stats.
-2. Passe sur Ingress et hacke normalement. Une notification indique que la capture tourne ; elle permet aussi de l'arrêter.
-3. Reviens dans l'app : les captures sont analysées et les statistiques s'affichent.
+L'app a trois onglets :
+- **Capture** (sur le terrain) : gros bouton Démarrer/Arrêter, compteurs de la session, dernières récompenses captées (la preuve que ça marche), alertes en cas de problème (capture coupée, aucune image, rien de reconnu, OCR lent), et au premier lancement une liste « Pour bien démarrer » (autorisations, tuile, première récompense).
+- **Stats** : type de récompense (Normale / Bonus / Hack + glyph), filtres repliés dans une puce (Ito En, niveau du portail, qualité du glyph), taille d'échantillon, puis objets groupés par famille (Armes, Résonateurs, Cubes, Mods, Clés, Spéciaux). Chaque objet se déplie par niveau ou rareté et mène à sa fiche par niveau de portail.
+- **Objets** : catalogue avec recherche (abréviations comprises), vers la fiche de chaque objet.
 
-**Sans quitter le jeu** : la tuile « Capture hacks » des réglages rapides (le volet déroulé du haut de l'écran) démarre ou arrête la capture. Sur Android 13+, le bouton « Ajouter » de l'app la place directement ; sinon, l'ajouter en modifiant les réglages rapides. Android demande quand même son accord de partage d'écran à chaque démarrage : la fenêtre s'ouvre par-dessus le jeu puis se referme.
+La roue dentée ouvre les **Réglages** : fréquence d'analyse, tuile, autorisations, mode calibration, **historique des récompenses** (pour supprimer une récompense mal lue, qui ne reviendra pas après une ré-analyse), images brutes, et le diagnostic avec son journal (bouton Copier).
+
+1. Appuie sur **Démarrer** (ou la tuile « Capture hacks » depuis le jeu), accepte le partage d'écran en choisissant **Écran entier**.
+2. Passe sur Ingress et hacke normalement.
+3. Les récompenses apparaissent dans l'onglet Capture ; les stats se mettent à jour.
 
 L'OCR est mis en pause tant que l'app elle-même est à l'écran, pour ne pas lire ses propres statistiques.
 
@@ -101,20 +106,26 @@ Le jeu doit être en anglais pour l'instant (le catalogue ne contient que les no
 
 ```
 android/app/src/main/kotlin/…/
-  MainActivity.kt     canal Flutter, autorisations, consentement de capture
-  CaptureService.kt   service de premier plan : MediaProjection → ImageReader
-                      → OCR ML Kit (1 image/s max) → pré-filtre par mots-clés
-                      → dédoublonnage → GPS → file d'attente
-  PendingStore.kt     file JSONL sur disque entre le service et Dart
+  MainActivity.kt                canal Flutter, autorisations, consentement, tuile
+  CaptureService.kt              service de premier plan : MediaProjection → ImageReader
+                                 → OCR ML Kit sur une bande d'écran → pré-filtre
+                                 → dédoublonnage → GPS → file d'attente
+  RarityMarks.kt                 rareté des mods lue sur les pixels (barres colorées)
+  CaptureTileService.kt          tuile des réglages rapides
+  ProjectionRequestActivity.kt   consentement de capture par-dessus le jeu
+  PendingStore.kt                file JSONL sur disque entre le service et Dart
+  ServiceLog.kt, Diagnostics.kt  journal persistant et compteurs
 
 lib/
   capture/capture_channel.dart   MethodChannel vers le natif
   models/ocr_capture.dart        capture OCR (lignes + positions + GPS)
-  parsing/item_catalog.dart      catalogue des items et de leurs alias
-  parsing/hack_parser.dart       lignes OCR → items (niveau, rareté, quantité, bonus)
+  parsing/                       catalogue, parseur des popups, niveau du portail
   data/reward_repository.dart    SQLite : images brutes, récompenses et leurs items
-  stats/reward_stats.dart        chances, parts, marges, vue Hack + glyph calculée
-  ui/                            écran principal et écran des captures
+  data/popup_linker.dart         doublons et liens entre écrans (fin de glyph → bonus)
+  stats/                         chances, marges, fiche objet (grille)
+  ui/app_controller.dart         état partagé (service, base, synchronisation)
+  ui/shell.dart                  onglets Capture / Stats / Objets
+  ui/…                           onglets, fiche objet, réglages, historique, images brutes
 ```
 
 Les captures brutes (texte et positions) sont conservées, ce qui permet de ré-analyser tout l'historique quand le parseur s'améliore.

@@ -70,33 +70,47 @@ class ItemStat {
 }
 
 class RewardStats {
-  const RewardStats({required this.rewards, required this.totalItems, required this.items});
+  const RewardStats({
+    required this.rewards,
+    required this.totalItems,
+    required this.items,
+    this.totals = const [],
+  });
 
   /// Number of rewards (or of hacks, for the computed view).
   final int rewards;
   final int totalItems;
+
+  /// One line per item variant (item + level + rarity).
   final List<ItemStat> items;
+
+  /// One line per item, all levels and rarities together.
+  final List<ItemStat> totals;
 
   double get itemsPerReward => rewards == 0 ? 0 : totalItems / rewards;
 
+  /// Variants of [item], in display order.
+  List<ItemStat> variantsOf(String item) => [for (final s in items) if (s.item == item) s];
+
   static const empty = RewardStats(rewards: 0, totalItems: 0, items: []);
 
-  /// Stats over [rewards] rewards whose item counts are [counts].
-  factory RewardStats.fromCounts(int rewards, List<ItemCount> counts) {
+  /// Stats over [rewards] rewards whose item counts are [counts] (per
+  /// variant) and [totals] (per item, all variants together).
+  factory RewardStats.fromCounts(int rewards, List<ItemCount> counts, {List<ItemCount> totals = const []}) {
     final totalItems = counts.fold(0, (sum, c) => sum + c.quantity);
-    final items = [
-      for (final c in counts)
-        ItemStat(
-          item: c.item,
-          level: c.level,
-          rarity: c.rarity,
-          presence: rewards == 0 ? 0 : c.rewardsWith / rewards,
-          presenceMargin: margin95(c.rewardsWith, rewards),
-          share: totalItems == 0 ? 0 : c.quantity / totalItems,
-          perReward: rewards == 0 ? 0 : c.quantity / rewards,
-        ),
-    ]..sort(_byPresence);
-    return RewardStats(rewards: rewards, totalItems: totalItems, items: items);
+    List<ItemStat> lines(List<ItemCount> source) => [
+          for (final c in source)
+            ItemStat(
+              item: c.item,
+              level: c.level,
+              rarity: c.rarity,
+              presence: rewards == 0 ? 0 : c.rewardsWith / rewards,
+              presenceMargin: margin95(c.rewardsWith, rewards),
+              share: totalItems == 0 ? 0 : c.quantity / totalItems,
+              perReward: rewards == 0 ? 0 : c.quantity / rewards,
+            ),
+        ]..sort(_byPresence);
+    return RewardStats(rewards: rewards, totalItems: totalItems, items: lines(counts), totals: lines(totals));
   }
 
   /// What a hack with glyph yields: one regular reward plus one bonus
@@ -107,13 +121,27 @@ class RewardStats {
     required List<ItemCount> regular,
     required int bonusRewards,
     required List<ItemCount> bonus,
+    List<ItemCount> regularTotals = const [],
+    List<ItemCount> bonusTotals = const [],
   }) {
     if (regularRewards == 0 || bonusRewards == 0) return empty;
+    final items = _combine(regularRewards, regular, bonusRewards, bonus);
+    final totals = _combine(regularRewards, regularTotals, bonusRewards, bonusTotals);
+    final expectedItems = items.fold(0.0, (sum, s) => sum + s.perReward);
+    final hacks = math.min(regularRewards, bonusRewards);
+    return RewardStats(
+      rewards: hacks,
+      totalItems: (expectedItems * hacks).round(),
+      items: items,
+      totals: totals,
+    );
+  }
+
+  static List<ItemStat> _combine(int regularRewards, List<ItemCount> regular, int bonusRewards, List<ItemCount> bonus) {
     final regularByKey = {for (final c in regular) c.key: c};
     final bonusByKey = {for (final c in bonus) c.key: c};
     final keys = {...regularByKey.keys, ...bonusByKey.keys};
     final items = <ItemStat>[];
-    var expectedItems = 0.0;
     for (final key in keys) {
       final r = regularByKey[key];
       final b = bonusByKey[key];
@@ -122,8 +150,6 @@ class RewardStats {
       final pb = (b?.rewardsWith ?? 0) / bonusRewards;
       final mr = margin95(r?.rewardsWith ?? 0, regularRewards);
       final mb = margin95(b?.rewardsWith ?? 0, bonusRewards);
-      final perHack = (r?.quantity ?? 0) / regularRewards + (b?.quantity ?? 0) / bonusRewards;
-      expectedItems += perHack;
       items.add(ItemStat(
         item: ref.item,
         level: ref.level,
@@ -132,12 +158,10 @@ class RewardStats {
         // Error propagation of 1 − (1 − pr)(1 − pb).
         presenceMargin: math.sqrt(math.pow((1 - pb) * mr, 2) + math.pow((1 - pr) * mb, 2)),
         share: null,
-        perReward: perHack,
+        perReward: (r?.quantity ?? 0) / regularRewards + (b?.quantity ?? 0) / bonusRewards,
       ));
     }
-    items.sort(_byPresence);
-    final hacks = math.min(regularRewards, bonusRewards);
-    return RewardStats(rewards: hacks, totalItems: (expectedItems * hacks).round(), items: items);
+    return items..sort(_byPresence);
   }
 
   /// 95 % confidence half-width of a proportion (Wilson score interval).

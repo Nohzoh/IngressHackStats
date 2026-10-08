@@ -25,6 +25,23 @@ class CaptureChannel {
   /// Asks to add the tile; returns "added", "already", "refused" or "error".
   Future<String> addTile() async => await _channel.invokeMethod<String>('addTile') ?? 'error';
 
+  /// Whether the quick settings tile is in place (as far as the app knows).
+  Future<bool> tileAdded() async => await _channel.invokeMethod<bool>('tileAdded') ?? false;
+
+  /// {notifications: bool, location: bool}
+  Future<Map<String, bool>> permissionStatus() async =>
+      await _channel.invokeMapMethod<String, bool>('permissionStatus') ?? const {};
+
+  /// Asks the missing permissions, returns the new status.
+  Future<Map<String, bool>> requestPermissions() async =>
+      await _channel.invokeMapMethod<String, bool>('requestPermissions') ?? const {};
+
+  /// Small persisted booleans (onboarding done…).
+  Future<bool> getFlag(String key) async => await _channel.invokeMethod<bool>('getFlag', {'key': key}) ?? false;
+
+  Future<void> setFlag(String key, bool value) =>
+      _channel.invokeMethod<void>('setFlag', {'key': key, 'value': value});
+
   /// Minimum delay between two OCR passes, in milliseconds.
   Future<int> ocrInterval() async => await _channel.invokeMethod<int>('getOcrInterval') ?? 250;
 

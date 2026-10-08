@@ -32,6 +32,9 @@ abstract final class CaptureKind {
 
   /// Recorded in calibration mode without being recognized.
   static const raw = 'raw';
+
+  /// Reward deleted by the user (and its other readings).
+  static const deleted = 'deleted';
 }
 
 /// Which rewards the stats are computed on.
@@ -159,7 +162,7 @@ class RewardRepository {
   final Database _db;
   final HackParser _parser;
 
-  static const _schemaVersion = 7;
+  static const _schemaVersion = 8;
 
   static Future<RewardRepository> open() async {
     final path = p.join(await getDatabasesPath(), 'hacks.db');
@@ -171,8 +174,11 @@ class RewardRepository {
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 6) {
           await _migrateToRewards(db);
-        } else if (oldVersion < 7) {
-          await db.execute('ALTER TABLE captures ADD COLUMN read_score INTEGER');
+        } else {
+          if (oldVersion < 7) await db.execute('ALTER TABLE captures ADD COLUMN read_score INTEGER');
+          if (oldVersion < 8) {
+            await db.execute('ALTER TABLE captures ADD COLUMN user_deleted INTEGER NOT NULL DEFAULT 0');
+          }
         }
         // Linking rules changed with each version: rebuild from raw frames.
         needsReparse = true;
@@ -202,6 +208,7 @@ class RewardRepository {
         ap INTEGER,
         parent_id INTEGER,
         read_score INTEGER,
+        user_deleted INTEGER NOT NULL DEFAULT 0,
         raw_text TEXT NOT NULL,
         lines_json TEXT NOT NULL,
         screen_w REAL,
@@ -279,6 +286,8 @@ class RewardRepository {
       final rows = await txn.query(
         'captures',
         columns: ['id', 'ts', 'lines_json', 'screen_h', 'debug'],
+        // Rewards deleted by the user stay out, with their other readings.
+        where: 'user_deleted = 0',
         orderBy: 'ts ASC, id ASC',
       );
       final linker = PopupLinker();
@@ -450,13 +459,13 @@ class RewardRepository {
     switch (filter.type) {
       case RewardType.regular:
         final c = await _counts(filter, bonus: false);
-        return RewardStats.fromCounts(c.$1, c.$2);
+        return RewardStats.fromCounts(c.$1, c.$2, totals: c.$3);
       case RewardType.bonus:
         final c = await _counts(filter, bonus: true);
-        return RewardStats.fromCounts(c.$1, c.$2);
+        return RewardStats.fromCounts(c.$1, c.$2, totals: c.$3);
       case RewardType.all:
         final c = await _counts(filter, bonus: null);
-        return RewardStats.fromCounts(c.$1, c.$2);
+        return RewardStats.fromCounts(c.$1, c.$2, totals: c.$3);
       case RewardType.glyphHack:
         final regular = await _counts(filter, bonus: false);
         final bonus = await _counts(filter, bonus: true);
@@ -465,12 +474,15 @@ class RewardRepository {
           regular: regular.$2,
           bonusRewards: bonus.$1,
           bonus: bonus.$2,
+          regularTotals: regular.$3,
+          bonusTotals: bonus.$3,
         );
     }
   }
 
   /// Number of matching rewards and their item counts. [bonus]: null for both.
-  Future<(int, List<ItemCount>)> _counts(RewardFilter filter, {required bool? bonus}) async {
+  /// Matching rewards, counts per variant, and counts per item.
+  Future<(int, List<ItemCount>, List<ItemCount>)> _counts(RewardFilter filter, {required bool? bonus}) async {
     final (where, args) = _where(filter, bonus: bonus);
 
     final rewards = Sqflite.firstIntValue(
@@ -485,19 +497,22 @@ class RewardRepository {
       JOIN captures c ON c.id = i.capture_id
       WHERE $where
       GROUP BY i.item, i.level, i.rarity''', args);
-    return (
-      rewards,
-      [
-        for (final r in rows)
-          ItemCount(
-            item: r['item'] as String,
-            level: r['level'] as int?,
-            rarity: r['rarity'] as String?,
-            rewardsWith: (r['rewards_with'] as num).toInt(),
-            quantity: (r['quantity'] as num).toInt(),
-          ),
-      ],
-    );
+    final totals = await _db.rawQuery('''
+      SELECT i.item,
+             COUNT(DISTINCT i.capture_id) AS rewards_with,
+             SUM(i.quantity) AS quantity
+      FROM reward_items i
+      JOIN captures c ON c.id = i.capture_id
+      WHERE $where
+      GROUP BY i.item''', args);
+    ItemCount count(Map<String, Object?> r) => ItemCount(
+          item: r['item'] as String,
+          level: r['level'] as int?,
+          rarity: r['rarity'] as String?,
+          rewardsWith: (r['rewards_with'] as num).toInt(),
+          quantity: (r['quantity'] as num).toInt(),
+        );
+    return (rewards, [for (final r in rows) count(r)], [for (final r in totals) count(r)]);
   }
 
   /// SQL condition on the rewards (alias `c`) matching [filter].
@@ -587,11 +602,48 @@ class RewardRepository {
 
   // ------------------------------------------------------------- captures
 
-  Future<List<CaptureRow>> recentCaptures({int limit = 200}) async {
-    final rows = await _db.query('captures', orderBy: 'ts DESC, id DESC', limit: limit);
+  /// Most recent rewards, newest first; [since]: only from this time (ms).
+  Future<List<CaptureRow>> recentRewards({int limit = 200, int? since}) => _rows(
+        where: "kind = '${CaptureKind.reward}'${since != null ? ' AND ts >= $since' : ''}",
+        limit: limit,
+      );
+
+  /// Regular and bonus rewards stored since [since] (ms), and the last one.
+  Future<({int regular, int bonus, int? lastTs})> sessionSummary(int since) async {
+    final rows = await _db.rawQuery('''
+      SELECT SUM(CASE WHEN bonus = 0 THEN 1 ELSE 0 END) AS regular,
+             SUM(CASE WHEN bonus = 1 THEN 1 ELSE 0 END) AS bonus,
+             MAX(ts) AS last_ts
+      FROM captures WHERE kind = '${CaptureKind.reward}' AND ts >= ?''', [since]);
+    final r = rows.first;
+    return (
+      regular: (r['regular'] as num?)?.toInt() ?? 0,
+      bonus: (r['bonus'] as num?)?.toInt() ?? 0,
+      lastTs: (r['last_ts'] as num?)?.toInt(),
+    );
+  }
+
+  /// Removes a misread reward from the stats. Its frames are kept (marked
+  /// deleted) and a re-analysis does not bring it back.
+  Future<void> deleteReward(int id) async {
+    await _db.transaction((txn) async {
+      await txn.delete('reward_items', where: 'capture_id = ?', whereArgs: [id]);
+      await txn.update(
+        'captures',
+        {'kind': CaptureKind.deleted, 'user_deleted': 1},
+        where: 'id = ? OR (parent_id = ? AND kind = ?)',
+        whereArgs: [id, id, CaptureKind.duplicate],
+      );
+    });
+  }
+
+  Future<List<CaptureRow>> recentCaptures({int limit = 200}) => _rows(limit: limit);
+
+  Future<List<CaptureRow>> _rows({String? where, int limit = 200}) async {
+    final rows = await _db.query('captures', where: where, orderBy: 'ts DESC, id DESC', limit: limit);
     final itemRows = await _db.rawQuery('''
       SELECT capture_id, item, level, rarity, quantity FROM reward_items
-      WHERE capture_id IN (SELECT id FROM captures ORDER BY ts DESC, id DESC LIMIT ?)
+      WHERE capture_id IN (SELECT id FROM captures ${where != null ? 'WHERE $where' : ''} ORDER BY ts DESC, id DESC LIMIT ?)
       ORDER BY id''', [limit]);
     final itemsByCapture = <int, List<String>>{};
     for (final r in itemRows) {

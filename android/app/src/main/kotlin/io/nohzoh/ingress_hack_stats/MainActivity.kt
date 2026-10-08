@@ -25,6 +25,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
 
     private var pendingStartResult: MethodChannel.Result? = null
+    private var pendingPermissionResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -40,6 +41,26 @@ class MainActivity : FlutterActivity() {
                     }
                     "isRunning" -> result.success(CaptureService.isRunning)
                     "canAddTile" -> result.success(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                    "tileAdded" -> result.success(prefs().getBoolean(PREF_TILE_ADDED, false))
+                    "permissionStatus" -> result.success(permissionStatus())
+                    "requestPermissions" -> {
+                        if (pendingPermissionResult != null || pendingStartResult != null) {
+                            result.error("BUSY", "A request is already in progress", null)
+                        } else {
+                            pendingPermissionResult = result
+                            if (!requestMissingPermissions()) {
+                                pendingPermissionResult = null
+                                result.success(permissionStatus())
+                            }
+                        }
+                    }
+                    "getFlag" -> result.success(prefs().getBoolean("flag_" + call.argument<String>("key"), false))
+                    "setFlag" -> {
+                        prefs().edit()
+                            .putBoolean("flag_" + call.argument<String>("key"), call.argument<Boolean>("value") == true)
+                            .apply()
+                        result.success(null)
+                    }
                     "addTile" -> requestAddTile(result)
                     "setDebug" -> {
                         CaptureService.debugMode = call.argument<Boolean>("enabled") == true
@@ -115,6 +136,10 @@ class MainActivity : FlutterActivity() {
             "${permissions[i].substringAfterLast('.')}=${if (grantResults.getOrNull(i) == PackageManager.PERMISSION_GRANTED) "oui" else "non"}"
         }
         ServiceLog.log(this, "app : autorisations $summary")
+        pendingPermissionResult?.let {
+            pendingPermissionResult = null
+            it.success(permissionStatus())
+        }
         if (pendingStartResult != null) requestProjection()
     }
 
@@ -152,6 +177,11 @@ class MainActivity : FlutterActivity() {
             Icon.createWithResource(this, R.drawable.ic_stat_notify),
             mainExecutor,
         ) { code ->
+            if (code == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED ||
+                code == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED
+            ) {
+                prefs().edit().putBoolean(PREF_TILE_ADDED, true).apply()
+            }
             result.success(
                 when (code) {
                     StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED -> "added"
@@ -163,6 +193,11 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun permissionStatus(): Map<String, Boolean> = mapOf(
+        "notifications" to (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || granted(Manifest.permission.POST_NOTIFICATIONS)),
+        "location" to (granted(Manifest.permission.ACCESS_FINE_LOCATION) || granted(Manifest.permission.ACCESS_COARSE_LOCATION)),
+    )
+
     private fun prefs() = getSharedPreferences("settings", MODE_PRIVATE)
 
     private fun granted(permission: String) =
@@ -172,6 +207,7 @@ class MainActivity : FlutterActivity() {
         private const val CHANNEL = "ingresshackstats/capture"
         private const val PREF_OCR_INTERVAL = "ocrIntervalMs"
         private const val REQ_PERMISSIONS = 4201
+        const val PREF_TILE_ADDED = "tileAdded"
         private const val REQ_PROJECTION = 4202
     }
 }

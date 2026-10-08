@@ -100,3 +100,34 @@ class _Entry {
   final String alias;
   final RegExp pattern;
 }
+
+/// Groups of items for the stats list, in display order.
+enum ItemFamily {
+  weapons('Armes'),
+  resonators('Résonateurs'),
+  cubes('Cubes'),
+  mods('Mods'),
+  keys('Clés'),
+  special('Spéciaux');
+
+  const ItemFamily(this.label);
+  final String label;
+
+  static ItemFamily of(String item) => switch (item) {
+        'XMP Burster' || 'Ultra Strike' => weapons,
+        'Resonator' => resonators,
+        'Power Cube' || 'Hypercube' => cubes,
+        'Portal Shield' ||
+        'Aegis Shield' ||
+        'Heat Sink' ||
+        'Multi-hack' ||
+        'Link Amp' ||
+        'SoftBank Ultra Link' ||
+        'Force Amp' ||
+        'Turret' ||
+        'Ito En Transmuter' =>
+          mods,
+        'Portal Key' => keys,
+        _ => special,
+      };
+}

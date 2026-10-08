@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'ui/home_screen.dart';
+import 'ui/shell.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,7 +19,7 @@ class IngressHackStatsApp extends StatelessWidget {
         brightness: Brightness.dark,
         useMaterial3: true,
       ),
-      home: const HomeScreen(),
+      home: const Shell(),
     );
   }
 }

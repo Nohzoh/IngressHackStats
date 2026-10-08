@@ -2,26 +2,55 @@ import 'package:flutter/material.dart';
 
 import '../data/reward_repository.dart';
 import '../parsing/item_catalog.dart';
+import 'app_controller.dart';
+import 'common.dart';
 import 'item_detail_screen.dart';
 
 /// Every known item (catalog + items seen), to open its detail.
 class CatalogScreen extends StatefulWidget {
-  const CatalogScreen({super.key, required this.repository});
+  const CatalogScreen({super.key, required this.repository, this.controller});
 
   final RewardRepository repository;
+
+  /// When shown as a tab: reloads when new data arrives.
+  final AppController? controller;
 
   @override
   State<CatalogScreen> createState() => _CatalogScreenState();
 }
 
 class _CatalogScreenState extends State<CatalogScreen> {
-  late final Future<List<(String, int)>> _items = widget.repository.knownItems();
+  late Future<List<(String, int)>> _items = widget.repository.knownItems();
   String _query = '';
+  int _loadedVersion = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadedVersion = widget.controller?.dataVersion ?? 0;
+    widget.controller?.addListener(_onChange);
+  }
+
+  @override
+  void dispose() {
+    widget.controller?.removeListener(_onChange);
+    super.dispose();
+  }
+
+  void _onChange() {
+    final version = widget.controller!.dataVersion;
+    if (version == _loadedVersion) return;
+    _loadedVersion = version;
+    setState(() => _items = widget.repository.knownItems());
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Objets')),
+      appBar: AppBar(
+        title: const Text('Objets'),
+        actions: [if (widget.controller != null) settingsAction(context, widget.controller!)],
+      ),
       body: Column(
         children: [
           Padding(

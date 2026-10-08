@@ -11,6 +11,16 @@ import android.service.quicksettings.TileService
 /** Quick settings tile: starts or stops the capture without leaving the game. */
 class CaptureTileService : TileService() {
 
+    override fun onTileAdded() {
+        super.onTileAdded()
+        getSharedPreferences("settings", MODE_PRIVATE).edit().putBoolean(MainActivity.PREF_TILE_ADDED, true).apply()
+    }
+
+    override fun onTileRemoved() {
+        super.onTileRemoved()
+        getSharedPreferences("settings", MODE_PRIVATE).edit().putBoolean(MainActivity.PREF_TILE_ADDED, false).apply()
+    }
+
     override fun onStartListening() {
         super.onStartListening()
         refresh()
