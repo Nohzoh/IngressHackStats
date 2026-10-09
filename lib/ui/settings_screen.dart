@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'app_controller.dart';
 import 'captures_screen.dart';
 import 'history_screen.dart';
+import 'level_check_screen.dart';
 
 /// Rarely used settings and troubleshooting, out of the main screens.
 class SettingsScreen extends StatelessWidget {
@@ -79,6 +80,14 @@ class SettingsScreen extends StatelessWidget {
               subtitle: const Text('Supprimer une récompense mal lue'),
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(builder: (_) => HistoryScreen(controller: controller)),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.fact_check_outlined),
+              title: const Text('Fiabilité du niveau de portail'),
+              subtitle: const Text('Estimation comparée au niveau réel donné par les Power Cubes'),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => LevelCheckScreen(repository: controller.repository!)),
               ),
             ),
             ListTile(

@@ -112,6 +112,7 @@ class CaptureRow {
     this.bonus = false,
     this.portalName,
     this.portalLevel,
+    this.portalLevelFromCube = false,
     this.transmuter,
     this.glyphStatus,
     this.glyphCommand,
@@ -139,6 +140,9 @@ class CaptureRow {
   /// For a reward: portal level inferred from its item levels.
   final int? portalLevel;
 
+  /// The portal level comes from a Power Cube (certain), not an estimate.
+  final bool portalLevelFromCube;
+
   /// For a reward: Ito En announced in the popup ([Transmuter]).
   final String? transmuter;
 
@@ -162,7 +166,7 @@ class RewardRepository {
   final Database _db;
   final HackParser _parser;
 
-  static const _schemaVersion = 8;
+  static const _schemaVersion = 9;
 
   static Future<RewardRepository> open() async {
     final path = p.join(await getDatabasesPath(), 'hacks.db');
@@ -176,6 +180,7 @@ class RewardRepository {
           await _migrateToRewards(db);
         } else {
           if (oldVersion < 7) await db.execute('ALTER TABLE captures ADD COLUMN read_score INTEGER');
+          if (oldVersion < 9) await db.execute('ALTER TABLE captures ADD COLUMN portal_level_from_cube INTEGER');
           if (oldVersion < 8) {
             await db.execute('ALTER TABLE captures ADD COLUMN user_deleted INTEGER NOT NULL DEFAULT 0');
           }
@@ -200,6 +205,7 @@ class RewardRepository {
         reject_reason TEXT,
         portal_name TEXT,
         portal_level INTEGER,
+        portal_level_from_cube INTEGER,
         transmuter TEXT,
         glyph_hack_bonus INTEGER,
         glyph_speed_bonus INTEGER,
@@ -310,6 +316,7 @@ class RewardRepository {
             ..._frameColumns(result, decision),
             // Derived from links, recomputed by _apply.
             'portal_level': null,
+            'portal_level_from_cube': null,
             'glyph_status': null,
           },
           where: 'id = ?',
@@ -353,9 +360,7 @@ class RewardRepository {
       case CaptureKind.reward:
         linker.rewardStored(id, capture.timestamp, result);
         await _insertItems(txn, id, result.items);
-        final columns = <String, Object?>{
-          'portal_level': inferPortalLevel(_levelCounts(result.items), seed: id),
-        };
+        final columns = <String, Object?>{..._portalLevelColumns(result.items, seed: id)};
         if (result.isBonusPopup) {
           final glyph = linker.takePendingGlyph(capture.timestamp);
           columns['glyph_status'] = GlyphStatus.compute(glyph?.result);
@@ -382,12 +387,12 @@ class RewardRepository {
     await txn.delete('reward_items', where: 'capture_id = ?', whereArgs: [target]);
     await _insertItems(txn, target, result.items);
     await txn.rawUpdate(
-      'UPDATE captures SET signature = ?, read_score = ?, portal_level = ?, '
+      'UPDATE captures SET signature = ?, read_score = ?, portal_level = ?, portal_level_from_cube = ?, '
       'portal_name = COALESCE(?, portal_name), transmuter = COALESCE(?, transmuter) WHERE id = ?',
       [
         result.signature,
         PopupLinker.readScore(result),
-        inferPortalLevel(_levelCounts(result.items), seed: target),
+        ..._portalLevelColumns(result.items, seed: target).values,
         result.portalName,
         result.transmuter,
         target,
@@ -444,13 +449,53 @@ class RewardRepository {
     return linker;
   }
 
-  static Map<int, int> _levelCounts(List<ParsedItem> items) {
+  /// Levels of the items (level → quantity); [cubes]: only the Power Cubes
+  /// (true) or only the other items (false).
+  static Map<int, int> _levelCounts(List<ParsedItem> items, {required bool cubes}) {
     final counts = <int, int>{};
     for (final item in items) {
       final level = item.level;
-      if (level != null) counts[level] = (counts[level] ?? 0) + item.quantity;
+      if (level == null || (item.item == kExactLevelItem) != cubes) continue;
+      counts[level] = (counts[level] ?? 0) + item.quantity;
     }
     return counts;
+  }
+
+  /// portal_level and portal_level_from_cube, in this order.
+  static Map<String, Object?> _portalLevelColumns(List<ParsedItem> items, {required int seed}) {
+    final level = portalLevelOf(
+      otherLevels: _levelCounts(items, cubes: false),
+      cubeLevels: _levelCounts(items, cubes: true),
+      seed: seed,
+    );
+    return {
+      'portal_level': level?.level,
+      'portal_level_from_cube': level == null ? null : (level.fromCube ? 1 : 0),
+    };
+  }
+
+  /// Real portal level (from a Power Cube) against the level the other
+  /// items would have given, over every reward that contains a cube.
+  Future<PortalLevelCheck> portalLevelCheck() async {
+    final rows = await _db.rawQuery('''
+      SELECT i.capture_id, i.item, i.level, SUM(i.quantity) AS q
+      FROM reward_items i JOIN captures c ON c.id = i.capture_id
+      WHERE c.kind = '${CaptureKind.reward}' AND c.portal_level_from_cube = 1 AND i.level IS NOT NULL
+      GROUP BY i.capture_id, i.item = ?, i.level''', [kExactLevelItem]);
+    final cubes = <int, Map<int, int>>{};
+    final others = <int, Map<int, int>>{};
+    for (final r in rows) {
+      final id = r['capture_id'] as int;
+      final target = r['item'] == kExactLevelItem ? cubes : others;
+      target.putIfAbsent(id, () => {})[r['level'] as int] = (r['q'] as num).toInt();
+    }
+    return PortalLevelCheck([
+      for (final MapEntry(key: id, value: cubeLevels) in cubes.entries)
+        (
+          inferPortalLevel(cubeLevels, seed: id)!,
+          inferPortalLevel(others[id] ?? const {}, seed: id),
+        ),
+    ]);
   }
 
   // ------------------------------------------------------------------ stats
@@ -564,6 +609,18 @@ class RewardRepository {
       WHERE $where AND i.item = ?
       GROUP BY i.capture_id, i.level, i.rarity''', [...args, item]);
 
+    // A Power Cube gives the portal level, unless it is the studied item.
+    final cubes = item == kExactLevelItem
+        ? const <Map<String, Object?>>[]
+        : await _db.rawQuery('''
+            SELECT i.capture_id, i.level, SUM(i.quantity) AS q
+            FROM reward_items i JOIN captures c ON c.id = i.capture_id
+            WHERE $where AND i.item = ? AND i.level IS NOT NULL
+            GROUP BY i.capture_id, i.level''', [...args, kExactLevelItem]);
+    final cubeLevels = <int, Map<int, int>>{};
+    for (final r in cubes) {
+      cubeLevels.putIfAbsent(r['capture_id'] as int, () => {})[r['level'] as int] = (r['q'] as num).toInt();
+    }
     final otherLevels = <int, Map<int, int>>{};
     for (final r in others) {
       otherLevels.putIfAbsent(r['capture_id'] as int, () => {})[r['level'] as int] = (r['q'] as num).toInt();
@@ -580,6 +637,7 @@ class RewardRepository {
           id: r['id'] as int,
           bonus: r['bonus'] == 1,
           otherLevels: otherLevels[r['id'] as int] ?? const {},
+          cubeLevels: cubeLevels[r['id'] as int] ?? const {},
           itemQuantities: quantities[r['id'] as int] ?? const {},
         ),
     ]);
@@ -666,6 +724,7 @@ class RewardRepository {
           bonus: r['bonus'] == 1,
           portalName: r['portal_name'] as String?,
           portalLevel: r['portal_level'] as int?,
+          portalLevelFromCube: r['portal_level_from_cube'] == 1,
           transmuter: r['transmuter'] as String?,
           glyphStatus: r['glyph_status'] as String?,
           glyphCommand: r['glyph_command'] as String?,

@@ -7,6 +7,7 @@ import '../stats/reward_stats.dart';
 import 'app_controller.dart';
 import 'common.dart';
 import 'item_detail_screen.dart';
+import 'level_check_screen.dart';
 
 /// Chances per item, grouped by family, for one type of reward.
 class StatsTab extends StatefulWidget {
@@ -177,7 +178,24 @@ class _StatsTabState extends State<StatsTab> {
                           onSelected: (_) => apply(_with(transmuter: t)),
                         ),
                     ]),
-                    section('Niveau du portail (estimé)', [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                      child: Text(
+                        'Le niveau du portail vient d’un Power Cube quand il y en a un (certain), '
+                        'sinon il est estimé d’après les autres objets.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(builder: (_) => LevelCheckScreen(repository: c.repository!)),
+                        ),
+                        child: const Text('Fiabilité de l’estimation'),
+                      ),
+                    ),
+                    section('Niveau du portail', [
                       for (final l in <int?>[null, 1, 2, 3, 4, 5, 6, 7, 8])
                         ChoiceChip(
                           label: Text(l == null ? 'Tous' : 'P$l'),

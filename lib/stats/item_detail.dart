@@ -11,6 +11,7 @@ class RewardObservation {
     required this.bonus,
     required this.otherLevels,
     required this.itemQuantities,
+    this.cubeLevels = const {},
   });
 
   final int id;
@@ -19,6 +20,10 @@ class RewardObservation {
   /// Item levels of the reward *without* the studied item (level → quantity),
   /// used to estimate the portal level without circularity.
   final Map<int, int> otherLevels;
+
+  /// Power Cube levels of the reward (empty when the studied item is the
+  /// Power Cube itself): a cube gives the portal level for certain.
+  final Map<int, int> cubeLevels;
 
   /// Studied item received, by variant key (see [ItemDetail.variantKey]).
   final Map<String, int> itemQuantities;
@@ -96,7 +101,7 @@ class ItemDetail {
         cells.putIfAbsent(_key(row, bonus, variant), _Acc.new);
 
     for (final r in rewards) {
-      final level = inferPortalLevel(r.otherLevels, seed: r.id) ?? unknownRow;
+      final level = portalLevelOf(otherLevels: r.otherLevels, cubeLevels: r.cubeLevels, seed: r.id)?.level ?? unknownRow;
       final total = r.itemQuantities.values.fold(0, (a, b) => a + b);
       for (final row in [null, level]) {
         acc(row, r.bonus, null).add(total);

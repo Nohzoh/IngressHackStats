@@ -58,4 +58,12 @@ void main() {
     expect(const DetailCell(rewards: 12, rewardsWith: 3, quantity: 3).reliable, isFalse);
     expect(const DetailCell(rewards: 30, rewardsWith: 3, quantity: 3).reliable, isTrue);
   });
+
+  test('a Power Cube in the reward fixes the portal level for other items', () {
+    final d = ItemDetail.compute('Resonator', const [
+      // Other items say L6, the cube says L7: the cube wins.
+      RewardObservation(id: 1, bonus: false, otherLevels: {6: 4}, cubeLevels: {7: 1}, itemQuantities: {'L6': 2}),
+    ]);
+    expect(d.levelRows, [7]);
+  });
 }

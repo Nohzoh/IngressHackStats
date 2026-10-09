@@ -317,8 +317,9 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
           '« 1/N » : en moyenne une récompense sur N le contient.\n'
           'Grisé : moins de ${DetailCell.reliableFrom} récompenses, valeur peu fiable. '
           'Touchez une case pour le détail.\n'
-          'Le niveau du portail est estimé à partir des autres objets de la récompense, '
-          'sans tenir compte de celui-ci. « P ? » : niveau impossible à estimer.',
+          'Niveau du portail : celui du Power Cube quand la récompense en contient un (certain), '
+          'sinon estimé d’après les autres objets, sans tenir compte de celui-ci. '
+          '« P ? » : niveau impossible à estimer.',
           style: Theme.of(context).textTheme.bodySmall,
         ),
       );

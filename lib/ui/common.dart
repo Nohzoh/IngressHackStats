@@ -53,7 +53,7 @@ class RewardTile extends StatelessWidget {
       if (reward.bonus && reward.glyphStatus != null && reward.glyphStatus != GlyphStatus.unknown)
         GlyphStatus.label(reward.glyphStatus!),
       if (reward.transmuter != null) Transmuter.label(reward.transmuter!),
-      if (reward.portalLevel != null) 'P${reward.portalLevel} estimé',
+      if (reward.portalLevel != null) 'P${reward.portalLevel}${reward.portalLevelFromCube ? '' : ' estimé'}',
     ];
     final title = reward.bonus ? 'Bonus de glyph' : (reward.portalName ?? 'Portail non lu');
     return ListTile(
