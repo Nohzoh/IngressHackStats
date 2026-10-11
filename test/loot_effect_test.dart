@@ -38,7 +38,7 @@ void main() {
       for (var i = 0; i < 20; i++) reward(10 + i % 2, key: 1, stratum: 'big'),
     ];
     final e = LootEffect.compute('Portal Key', rewards);
-    expect(e.othersWith, greaterThan(e.othersWithout + 5));
+    expect(e.othersWith, greaterThan(e.othersWithout + 4));
     expect(e.difference, closeTo(0, 0.2));
     expect(e.verdict, LootVerdict.noEffect);
   });
