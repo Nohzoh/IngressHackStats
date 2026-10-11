@@ -167,6 +167,14 @@ void main() {
     ]);
   });
 
+  test('single-rarity items ignore the bars', () {
+    final result = parser.parse(const [
+      OcrLine('§r1:160 x1 Link Amp', x: 100, y: 100, h: 30),
+      OcrLine('§r2:300 x1 Hypercube', x: 500, y: 100, h: 30),
+    ]);
+    expect(result.items.map((i) => i.rarity), [Rarity.rare, Rarity.veryRare]);
+  });
+
   test('two and three lit bars are rare and very rare', () {
     final result = parser.parse(const [
       OcrLine('§r2:270 x1 Heat Sink', x: 100, y: 100, h: 30),

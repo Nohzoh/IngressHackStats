@@ -166,7 +166,8 @@ class RewardRepository {
   final Database _db;
   final HackParser _parser;
 
-  static const _schemaVersion = 9;
+  // 10: no schema change, the catalog changed (Link Amp always rare).
+  static const _schemaVersion = 10;
 
   static Future<RewardRepository> open() async {
     final path = p.join(await getDatabasesPath(), 'hacks.db');

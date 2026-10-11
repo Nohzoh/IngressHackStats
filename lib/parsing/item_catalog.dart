@@ -50,7 +50,8 @@ const List<ItemType> kItemCatalog = [
   ItemType('Aegis Shield', ['aegis shield', 'aegis'], defaultRarity: Rarity.veryRare),
   ItemType('Heat Sink', ['heat sink', 'heatsink'], hasRarity: true),
   ItemType('Multi-hack', ['multi-hack', 'multihack', 'multi hack'], hasRarity: true),
-  ItemType('Link Amp', ['link amp'], hasRarity: true, defaultRarity: Rarity.rare),
+  // Very rare Link Amps exist but never come from a hack.
+  ItemType('Link Amp', ['link amp'], defaultRarity: Rarity.rare),
   ItemType('SoftBank Ultra Link', ['softbank ultra link', 'ultra link'], defaultRarity: Rarity.veryRare),
   ItemType('Force Amp', ['force amp'], defaultRarity: Rarity.rare),
   ItemType('Turret', ['turret'], defaultRarity: Rarity.rare),
