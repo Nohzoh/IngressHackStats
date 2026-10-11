@@ -9,6 +9,7 @@ import '../parsing/portal_level.dart';
 import 'popup_linker.dart';
 import '../parsing/item_catalog.dart';
 import '../stats/item_detail.dart';
+import '../stats/loot_effect.dart';
 import '../stats/reward_stats.dart';
 
 /// What a stored frame turned out to be.
@@ -642,6 +643,46 @@ class RewardRepository {
           itemQuantities: quantities[r['id'] as int] ?? const {},
         ),
     ]);
+  }
+
+  /// Effect of each item (or only [item]) on the number of other items of
+  /// its reward, for regular and bonus rewards. Only the Ito En and glyph
+  /// quality parts of [filter] apply. Rewards with no item read are left out.
+  Future<({Map<String, LootEffect> regular, Map<String, LootEffect> bonus})> lootEffects(
+    RewardFilter filter, {
+    String? item,
+  }) async {
+    final (where, args) = _where(filter, bonus: null, byPortalLevel: false);
+    final rewards = await _db.rawQuery(
+      'SELECT c.id, c.bonus, c.glyph_status, c.glyph_command, c.transmuter FROM captures c WHERE $where',
+      args,
+    );
+    final rows = await _db.rawQuery('''
+      SELECT i.capture_id, i.item, SUM(i.quantity) AS q
+      FROM reward_items i JOIN captures c ON c.id = i.capture_id
+      WHERE $where
+      GROUP BY i.capture_id, i.item''', args);
+    final items = <int, Map<String, int>>{};
+    for (final r in rows) {
+      items.putIfAbsent(r['capture_id'] as int, () => {})[r['item'] as String] = (r['q'] as num).toInt();
+    }
+    final regular = <LootObservation>[];
+    final bonus = <LootObservation>[];
+    for (final r in rewards) {
+      final content = items[r['id'] as int];
+      if (content == null) continue;
+      final isBonus = r['bonus'] == 1;
+      // The size of a bonus depends on the glyph sequence and its command.
+      final stratum = isBonus
+          ? '${r['glyph_status']}|${r['glyph_command']}|${r['transmuter']}'
+          : '${r['transmuter']}';
+      (isBonus ? bonus : regular).add(LootObservation(stratum: stratum, items: content));
+    }
+    final only = item == null ? null : [item];
+    return (
+      regular: LootEffect.computeAll(regular, items: only),
+      bonus: LootEffect.computeAll(bonus, items: only),
+    );
   }
 
   /// Items of the catalog plus any other item seen, with the number of

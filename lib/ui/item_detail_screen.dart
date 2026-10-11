@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../data/reward_repository.dart';
 import '../stats/item_detail.dart';
+import '../stats/loot_effect.dart';
 import '../stats/reward_stats.dart';
+import 'loot_effect_screen.dart';
 
 /// One item: chance to get it by portal level, item level (or rarity) and
 /// reward type.
@@ -28,6 +30,7 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
     glyph: widget.initialFilter.glyph,
   );
   ItemDetail? _detail;
+  ({Map<String, LootEffect> regular, Map<String, LootEffect> bonus})? _effects;
   Object? _error;
 
   final _types = <DetailColumnType>{DetailColumnType.regular, DetailColumnType.bonus};
@@ -48,7 +51,13 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
   Future<void> _load() async {
     try {
       final detail = await widget.repository.itemDetail(widget.item, _filter);
-      if (mounted) setState(() => _detail = detail);
+      final effects = await widget.repository.lootEffects(_filter, item: widget.item);
+      if (mounted) {
+        setState(() {
+          _detail = detail;
+          _effects = effects;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _error = e);
     }
@@ -72,6 +81,11 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   children: [
                     _header(context, detail),
+                    if (_effects != null)
+                      LootEffectCard(
+                        regular: _effects!.regular[widget.item],
+                        bonus: _effects!.bonus[widget.item],
+                      ),
                     _filters(),
                     _columnChoices(detail),
                     const SizedBox(height: 8),

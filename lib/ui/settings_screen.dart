@@ -5,6 +5,7 @@ import 'app_controller.dart';
 import 'captures_screen.dart';
 import 'history_screen.dart';
 import 'level_check_screen.dart';
+import 'loot_effect_screen.dart';
 
 /// Rarely used settings and troubleshooting, out of the main screens.
 class SettingsScreen extends StatelessWidget {
@@ -88,6 +89,14 @@ class SettingsScreen extends StatelessWidget {
               subtitle: const Text('Estimation comparée au niveau réel donné par les Power Cubes'),
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(builder: (_) => LevelCheckScreen(repository: controller.repository!)),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.compare_arrows),
+              title: const Text('Effet sur le reste du loot'),
+              subtitle: const Text('Un objet (clé…) réduit-il le nombre d’autres objets ?'),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => LootEffectScreen(repository: controller.repository!)),
               ),
             ),
             ListTile(

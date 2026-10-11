@@ -89,6 +89,8 @@ La qualité des glyphes vient de l'écran de fin de séquence (« HACKING BONUS 
 
 Seul le texte de la forme `[niveau|rareté] x<quantité> <nom>` est retenu, ce qui écarte le COMM et les alertes affichés autour.
 
+**Effet sur le reste du loot** (fiche objet, et Réglages → Données) : quand un objet sort (une clé, par exemple), la récompense contient-elle moins d’autres objets ? On compare le nombre d’autres objets entre récompenses avec et sans l’objet, à conditions égales (type de récompense, Ito En, qualité et commande du glyph), avec une marge à 95 %. Écart nul : l’objet s’ajoute ; négatif : il prend la place d’autres objets ; positif : il sort plutôt dans les grosses récompenses.
+
 Points encore à vérifier sur de vrais hacks : le format des items sans niveau (mods, clés, capsules) et la lecture de la rareté.
 
 ## Calibration
